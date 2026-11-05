@@ -1,0 +1,12 @@
+# PatchPilot backend dependencies
+# Install with: pip install -r backend/requirements.txt
+
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
+python-multipart>=0.0.9
+google-genai>=1.0
+
+# Legacy providers (no longer required - all agents use Gemini now)
+# anthropic>=0.34
+# openai>=1.30

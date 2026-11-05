@@ -1,0 +1,12 @@
+# Install from the project root: pip install -r requirements.txt
+# (identical to backend/requirements.txt; kept at root as the entry point)
+
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
+python-multipart>=0.0.9
+google-genai>=1.0
+
+# Development / test
+pytest>=8.0
+httpx>=0.27
