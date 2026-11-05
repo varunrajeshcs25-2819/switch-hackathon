@@ -21,12 +21,13 @@ load_dotenv(BASE_DIR / ".env")
 
 # API Keys
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
-# Gemini model used by all three agents
-# gemini-2.0-flash is available on the free tier
+# Models
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 
 # Database
 DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{BASE_DIR}/patchpilot.db")

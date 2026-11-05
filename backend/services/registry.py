@@ -8,14 +8,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-from backend.config import ANTHROPIC_API_KEY, GEMINI_API_KEY
+from backend.config import ANTHROPIC_API_KEY, GEMINI_API_KEY, GROQ_API_KEY
 from agents.investigation.agent import InvestigationAgent
 from agents.triage.agent import TriageAgent
 from agents.vision.agent import VisionAgent
 
-# Gemini is the primary provider; the Anthropic key is accepted as a legacy
-# fallback only for wrappers that still pass it through.
-API_KEY = GEMINI_API_KEY or ANTHROPIC_API_KEY or ""
+API_KEY = GEMINI_API_KEY or GROQ_API_KEY or ANTHROPIC_API_KEY or ""
 
 _vision_agent: Optional[VisionAgent] = None
 _triage_agent: Optional[TriageAgent] = None

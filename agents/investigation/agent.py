@@ -135,7 +135,41 @@ class InvestigationAgent:
         triage_classification: Optional[object] = None,
         max_tokens: int = 3500,
     ) -> PydanticInvestigationFindings:
-        """Call the reasoning model for investigation analysis with retry and fallback."""
+        """Call reasoning model with multi-provider failover (Groq -> Gemini -> AST Heuristic Engine)."""
+        from backend.config import GROQ_API_KEY, GROQ_MODEL, GEMINI_API_KEY, GEMINI_MODEL
+
+        # Priority 1: Groq Deep Reasoning Model (GPT-OSS-120B / Qwen)
+        if GROQ_API_KEY:
+            try:
+                from groq import Groq
+                client = Groq(api_key=GROQ_API_KEY)
+                completion = client.chat.completions.create(
+                    model=GROQ_MODEL,
+                    messages=[
+                        {"role": "system", "content": "You are the Investigation Agent. Return strictly valid JSON."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.1,
+                    max_tokens=max_tokens,
+                )
+                response_text = completion.choices[0].message.content or ""
+                parsed = self._parse_investigation_response(
+                    response_text,
+                    source_code=source_code,
+                    vision_observations=vision_observations,
+                    triage_classification=triage_classification,
+                )
+                if parsed:
+                    return parsed
+            except Exception as e:
+                self._log_action(
+                    action="groq_investigation_fallback",
+                    details=f"Groq investigation call failed: {str(e)[:120]}. Falling back to next provider.",
+                    success=False,
+                    error_message=str(e),
+                )
+
+        # Priority 2: Gemini
         if self.api_key:
             for attempt in range(self.max_retries + 1):
                 try:
@@ -167,7 +201,7 @@ class InvestigationAgent:
                     if attempt < self.max_retries:
                         await asyncio.sleep(1.5 ** attempt)
 
-        # Fallback to code analysis heuristic if no API key or model calls fail
+        # Priority 3: Fallback to local AST & code inspection engine
         return self._heuristic_investigation_fallback(
             source_code=source_code,
             vision_observations=vision_observations,

@@ -114,7 +114,36 @@ class TriageAgent:
         issue_description: str = "",
         vision_observations: Optional[object] = None,
     ) -> PydanticTriageClassification:
-        """Call the reasoning model for triage classification with retry and robust fallback."""
+        """Call the reasoning model for triage classification with multi-provider retry and robust fallback."""
+        from backend.config import GROQ_API_KEY, GROQ_MODEL, GEMINI_API_KEY, GEMINI_MODEL
+
+        # Priority 1: Groq if key present (high speed, large reasoning model)
+        if GROQ_API_KEY:
+            try:
+                from groq import Groq
+                client = Groq(api_key=GROQ_API_KEY)
+                completion = client.chat.completions.create(
+                    model=GROQ_MODEL,
+                    messages=[
+                        {"role": "system", "content": "You are the Triage Agent. Return strictly valid JSON."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.1,
+                    max_tokens=2500,
+                )
+                response_text = completion.choices[0].message.content or ""
+                parsed = self._parse_triage_response(response_text)
+                if parsed:
+                    return parsed
+            except Exception as e:
+                self._log_action(
+                    action="groq_triage_fallback",
+                    details=f"Groq triage call failed: {str(e)[:120]}. Falling back to next provider.",
+                    success=False,
+                    error_message=str(e),
+                )
+
+        # Priority 2: Gemini
         if self.api_key:
             for attempt in range(self.max_retries + 1):
                 try:
@@ -141,7 +170,7 @@ class TriageAgent:
                     if attempt < self.max_retries:
                         await asyncio.sleep(1.5 ** attempt)
 
-        # Keyword / Heuristic analysis fallback if no API key or model calls fail
+        # Priority 3: Sophisticated deterministic heuristic fallback
         return self._heuristic_fallback(issue_description, vision_observations)
 
     def _parse_triage_response(self, text: str) -> Optional[PydanticTriageClassification]:
