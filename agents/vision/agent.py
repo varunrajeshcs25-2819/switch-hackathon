@@ -173,8 +173,36 @@ class VisionAgent:
             raw_observation=f"Vision Agent encountered a model API error: {str(last_error)}",
         )
 
+    def _extract_text_ocr(self, raw_bytes: bytes) -> List[str]:
+        """Perform on-device OCR using RapidOCR (ONNXRuntime) to read text/tracebacks from screenshots."""
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+            ocr = RapidOCR()
+            result, _ = ocr(raw_bytes)
+            if not result:
+                return []
+            extracted_lines = []
+            for item in result:
+                if item and len(item) >= 3:
+                    try:
+                        conf = float(item[2])
+                    except (ValueError, TypeError):
+                        conf = 1.0
+                    text = str(item[1]).strip()
+                    if conf > 0.45 and text:
+                        extracted_lines.append(text)
+            return extracted_lines
+        except Exception as e:
+            self._log_action(
+                action="ocr_extraction_warning",
+                details=f"Local OCR could not run: {str(e)[:120]}",
+                success=False,
+                error_message=str(e),
+            )
+            return []
+
     def _inspect_image(self, screenshot_base64: str) -> Dict[str, Any]:
-        """Extract empirical properties from image using PIL safely without external APIs."""
+        """Extract empirical properties and OCR text from image using PIL & RapidOCR safely."""
         if not screenshot_base64 or not screenshot_base64.strip():
             return {"valid": False, "reason": "No image payload"}
         try:
@@ -189,6 +217,10 @@ class VisionAgent:
                 pixels = list(stat.getdata())
                 avg_brightness = sum(pixels) / max(len(pixels), 1)
                 is_dark_theme = avg_brightness < 100
+
+                # Extract on-screen text via OCR
+                ocr_lines = self._extract_text_ocr(raw_bytes)
+
                 return {
                     "valid": True,
                     "width": width,
@@ -197,6 +229,7 @@ class VisionAgent:
                     "mode": mode,
                     "is_dark_theme": is_dark_theme,
                     "brightness": round(avg_brightness, 1),
+                    "ocr_lines": ocr_lines,
                 }
         except Exception as e:
             return {"valid": False, "error": str(e)}
@@ -207,14 +240,27 @@ class VisionAgent:
         screenshot_base64: str,
         mime_type: str,
     ) -> PydanticVisionObservations:
-        """Analyze visual evidence and screenshot metadata using Groq reasoning with PIL metadata."""
-        # Inspect image safely
+        """Analyze visual evidence and screenshot metadata using Groq reasoning with PIL metadata and RapidOCR."""
+        # Inspect image safely & perform OCR
         img_info = self._inspect_image(screenshot_base64)
 
         # Build context for visual reasoning
         visual_metadata = ""
+        ocr_text_block = ""
+        ocr_lines = img_info.get("ocr_lines", [])
+
+        if ocr_lines:
+            ocr_text_block = (
+                "\n\n=======================================================\n"
+                "OPTICAL CHARACTER RECOGNITION (OCR) - TEXT EXTRACTED DIRECTLY FROM SCREENSHOT:\n"
+                + "\n".join(f"  {line}" for line in ocr_lines)
+                + "\n=======================================================\n"
+                "IMPORTANT: The above lines are visible on the user's screen right now. "
+                "Carefully inspect them for syntax errors, tracebacks, line numbers, or UI text.\n"
+            )
+
         if img_info.get("valid"):
-            theme_str = "dark background / terminal" if img_info.get("is_dark_theme") else "light background / browser interface"
+            theme_str = "dark background / terminal / IDE" if img_info.get("is_dark_theme") else "light background / browser interface"
             visual_metadata = (
                 f"\nImage Analysis Telemetry:\n"
                 f"- Image dimensions: {img_info.get('width')}x{img_info.get('height')} pixels\n"
@@ -222,7 +268,7 @@ class VisionAgent:
                 f"- Render style: {theme_str} (average luminance: {img_info.get('brightness')}/255)\n"
             )
 
-        full_prompt = prompt + visual_metadata
+        full_prompt = prompt + visual_metadata + ocr_text_block
 
         # Call Groq if configured
         if GROQ_API_KEY:
@@ -236,7 +282,8 @@ class VisionAgent:
                             "role": "system",
                             "content": (
                                 "You are the PatchPilot Vision Agent. Analyze the visual bug description, "
-                                "stack trace, and image telemetry. Produce strictly valid JSON matching the schema."
+                                "OCR text extracted from the screenshot, and image telemetry. "
+                                "Produce strictly valid JSON matching the schema."
                             ),
                         },
                         {"role": "user", "content": full_prompt},
@@ -247,9 +294,11 @@ class VisionAgent:
                 text_content = completion.choices[0].message.content or ""
                 parsed = self._parse_vision_response(text_content)
                 if parsed:
-                    # Enrich with confirmed image dimensions if available
+                    # Enrich with confirmed image dimensions and OCR evidence if available
                     if img_info.get("valid") and not any(f"{img_info['width']}x{img_info['height']}" in e for e in parsed.evidence):
                         parsed.evidence.append(f"Screenshot verified ({img_info['width']}x{img_info['height']} {img_info['format']})")
+                    if ocr_lines and not any("OCR" in e for e in parsed.evidence):
+                        parsed.evidence.append(f"OCR extracted {len(ocr_lines)} text fragment(s) from screen")
                     return parsed
             except Exception as e:
                 self._log_action(
@@ -260,7 +309,7 @@ class VisionAgent:
                 )
 
         # Deterministic Heuristic Fallback (Option 1 - zero external API)
-        return self._heuristic_vision_fallback(prompt, img_info)
+        return self._heuristic_vision_fallback(full_prompt, img_info)
 
     def _heuristic_vision_fallback(self, prompt: str, img_info: Dict[str, Any]) -> PydanticVisionObservations:
         """Deterministic heuristic visual analyzer when no external API is available."""
@@ -268,8 +317,20 @@ class VisionAgent:
         affected_components = []
         evidence = []
         uncertainties = []
+        ocr_lines = img_info.get("ocr_lines", [])
 
-        # Check for visible error lines or exceptions mentioned
+        # Process OCR lines first for exact error detection
+        for line in ocr_lines:
+            line_str = line.strip()
+            if re.search(r"(?:error|syntaxerror|zerodivisionerror|exception|traceback|line \d+|failed)", line_str, re.IGNORECASE):
+                if line_str not in error_messages:
+                    error_messages.append(line_str)
+            if re.search(r"\b(main\.py|\w+\.py|\w+\.ts|\w+\.js|\w+\.tsx)\b", line_str, re.IGNORECASE):
+                match = re.search(r"\b(\w+\.(?:py|ts|js|tsx))\b", line_str, re.IGNORECASE)
+                if match and match.group(1) not in affected_components:
+                    affected_components.append(match.group(1))
+
+        # Check for visible error lines or exceptions mentioned in prompt
         for match in re.finditer(r"(?:error|exception|fail(?:ed|ure)?|traceback|500|404|403):\s*([^\n\r]+)", prompt, re.IGNORECASE):
             err_line = match.group(0).strip()
             if err_line and err_line not in error_messages:
@@ -277,7 +338,7 @@ class VisionAgent:
 
         for line in prompt.split("\n"):
             line_str = line.strip()
-            if re.search(r"\b(ZeroDivisionError|NullPointerException|TypeError|ValueError|KeyError|AttributeError)\b", line_str):
+            if re.search(r"\b(ZeroDivisionError|NullPointerException|TypeError|ValueError|KeyError|AttributeError|SyntaxError)\b", line_str):
                 if line_str not in error_messages:
                     error_messages.append(line_str[:120])
 
@@ -292,6 +353,8 @@ class VisionAgent:
                 evidence.append("Console/dark-mode theme interface detected")
             else:
                 evidence.append("Standard light web interface canvas")
+            if ocr_lines:
+                evidence.append(f"OCR successfully extracted: {', '.join(ocr_lines[:3])}")
         else:
             uncertainties.append("Screenshot image bytes were not provided or unreadable; analyzed textual defect report.")
 

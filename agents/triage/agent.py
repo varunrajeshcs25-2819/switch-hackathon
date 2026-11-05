@@ -275,10 +275,13 @@ class TriageAgent:
             classification = IssueClassification.SECURITY_CONCERN
             severity = SeverityLevel.CRITICAL
             supporting_observations.append("Security-sensitive credentials or authentication mechanism referenced")
-        # 2. Backend & Server crash check
-        elif re.search(r"\b(500|internal server error|traceback|exception|sql|database error|panic)\b", text_lower):
+        # 2. Syntax / Compilation error or Backend & Server crash check
+        elif re.search(r"\b(syntaxerror|syntax error|indentationerror|parse error|compilation error|500|internal server error|traceback|exception|sql|database error|panic)\b", text_lower):
             classification = IssueClassification.BACKEND_ERROR
-            if re.search(r"\b(login|checkout|register|registration|payment|billing|crash|unusable)\b", text_lower):
+            if re.search(r"\b(syntaxerror|syntax error|was never closed|invalid syntax)\b", text_lower):
+                severity = SeverityLevel.HIGH
+                supporting_observations.append("Code syntax or parsing failure halts script execution")
+            elif re.search(r"\b(login|checkout|register|registration|payment|billing|crash|unusable)\b", text_lower):
                 severity = SeverityLevel.CRITICAL
                 supporting_observations.append("Backend server error blocking core application workflow")
             else:

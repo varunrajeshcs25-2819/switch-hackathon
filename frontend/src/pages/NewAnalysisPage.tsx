@@ -112,7 +112,6 @@ export const NewAnalysisPage = () => {
     const file = e.target.files?.[0]
     if (file) {
       setScreenshotFile(file)
-      setUserDescription("")
     }
   }
 
@@ -147,11 +146,36 @@ export const NewAnalysisPage = () => {
     }
   }
 
+  const handleResetForm = () => {
+    setScreenshotFile(null)
+    setUserDescription("")
+    setSourceCode("")
+    setVisionResults(null)
+    setTriageResults(null)
+    setInvestigationResults(null)
+    setShowReport(false)
+    setReportJson(null)
+    setError(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""
+    }
+  }
+
   const canSubmit = Boolean(screenshotFile || userDescription.trim())
 
   return (
     <div className="max-w-2xl mx-auto">
-      <h2 className="text-2xl font-bold mb-6">New Visual Bug Analysis</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold text-gray-800">New Visual Bug Analysis</h2>
+        {(showReport || visionResults || screenshotFile || userDescription || sourceCode) && (
+          <button
+            onClick={handleResetForm}
+            className="flex items-center text-sm font-medium px-3 py-1.5 rounded-lg border border-[#71c9ce] text-[#2c7a7e] hover:bg-[#cbf1f5]/50 transition-colors"
+          >
+            + Add New Bug
+          </button>
+        )}
+      </div>
 
       <div className="bg-white p-6 rounded-xl shadow mb-6">
         <div className="mb-4">
