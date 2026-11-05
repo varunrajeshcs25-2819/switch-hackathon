@@ -28,7 +28,7 @@ dependency, so it can be unit tested in isolation.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 from pydantic import BaseModel, Field
@@ -68,7 +68,7 @@ class AgentMessage(BaseModel):
     summary: str
     content: Dict[str, Any] = Field(default_factory=dict)
     reply_to: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class SwitchRoomError(RuntimeError):

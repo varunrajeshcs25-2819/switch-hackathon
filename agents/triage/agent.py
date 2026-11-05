@@ -281,7 +281,7 @@ class TriageAgent:
         # 2. Backend & Server crash check
         elif re.search(r"\b(500|internal server error|traceback|exception|sql|database error|panic)\b", text_lower):
             classification = IssueClassification.BACKEND_ERROR
-            if re.search(r"\b(login|checkout|register|payment|billing|crash|unusable)\b", text_lower):
+            if re.search(r"\b(login|checkout|register|registration|payment|billing|crash|unusable)\b", text_lower):
                 severity = SeverityLevel.CRITICAL
                 supporting_observations.append("Backend server error blocking core application workflow")
             else:
