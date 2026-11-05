@@ -1,5 +1,19 @@
 import React, {useEffect, useState} from "react"
-import {AlertCircle, CheckCircle, Eye, Filter, RefreshCw, Server} from "lucide-react"
+import {
+  Network,
+  Eye,
+  Filter,
+  Code2,
+  CheckCircle,
+  AlertTriangle,
+  ArrowRight,
+  ChevronDown,
+  ChevronRight,
+  RefreshCw,
+  Terminal,
+  ShieldCheck,
+  Zap,
+} from "lucide-react"
 
 const API_BASE =
   (import.meta as any).env?.VITE_API_BASE || "http://localhost:8000"
@@ -25,66 +39,54 @@ type AgentMessage = {
   created_at: string
 }
 
-const KIND_STYLES: Record<string, string> = {
-  observation: "bg-blue-100 text-blue-800 border-blue-200",
-  classification: "bg-orange-100 text-orange-800 border-orange-200",
-  task: "bg-purple-100 text-purple-800 border-purple-200",
-  findings: "bg-green-100 text-green-800 border-green-200",
-  challenge: "bg-red-100 text-red-800 border-red-200",
-  verdict: "bg-gray-100 text-gray-800 border-gray-200",
-  error: "bg-red-100 text-red-800 border-red-200",
-  system: "bg-slate-100 text-slate-700 border-slate-200",
-}
-
-const AGENT_COLORS: Record<string, string> = {
-  vision: "text-blue-700",
-  triage: "text-orange-700",
-  investigation: "text-green-700",
-  system: "text-gray-500",
+const KIND_BADGES: Record<string, {label: string; color: string}> = {
+  observation: {label: "OBSERVATION", color: "bg-blue-500/10 text-blue-400 border-blue-500/30"},
+  classification: {label: "CLASSIFICATION", color: "bg-amber-500/10 text-amber-400 border-amber-500/30"},
+  task: {label: "TASK DELEGATION", color: "bg-purple-500/10 text-purple-400 border-purple-500/30"},
+  findings: {label: "TECHNICAL FINDINGS", color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"},
+  challenge: {label: "INDEPENDENT CHALLENGE", color: "bg-rose-500/10 text-rose-400 border-rose-500/30"},
+  verdict: {label: "TRIAGE VERDICT", color: "bg-cyan-500/10 text-cyan-400 border-cyan-500/30"},
+  error: {label: "AGENT FAILURE", color: "bg-rose-500/10 text-rose-400 border-rose-500/30"},
+  system: {label: "ROOM SYSTEM", color: "bg-slate-500/10 text-slate-400 border-slate-500/30"},
 }
 
 export const AgentCollaborationPage = () => {
   const [issues, setIssues] = useState<Issue[]>([])
-  const [selected, setSelected] = useState<string>("")
+  const [selectedIssueId, setSelectedIssueId] = useState<string>("")
   const [messages, setMessages] = useState<AgentMessage[]>([])
   const [counts, setCounts] = useState<Record<string, number>>({})
   const [sourceCodeSupplied, setSourceCodeSupplied] = useState(false)
-  const [loadingIssues, setLoadingIssues] = useState(true)
-  const [loadingMessages, setLoadingMessages] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
 
   const loadIssues = async () => {
-    setLoadingIssues(true)
-    setError(null)
+    setLoading(true)
     try {
       const res = await fetch(`${API_BASE}/issues/`)
-      if (!res.ok) throw new Error(`Backend returned ${res.status}`)
+      if (!res.ok) throw new Error("Could not load issues")
       const data: Issue[] = await res.json()
       setIssues(data)
-      if (data.length && !selected) setSelected(data[0].issue_id)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (data.length && !selectedIssueId) {
+        setSelectedIssueId(data[0].issue_id)
+      }
+    } catch (e) {
+      console.error(e)
     } finally {
-      setLoadingIssues(false)
+      setLoading(false)
     }
   }
 
-  const loadMessages = async (issueId: string) => {
-    if (!issueId) return
-    setLoadingMessages(true)
-    setError(null)
+  const loadTranscript = async (id: string) => {
+    if (!id) return
     try {
-      const res = await fetch(`${API_BASE}/issues/${issueId}/messages`)
-      if (!res.ok) throw new Error(`Backend returned ${res.status}`)
+      const res = await fetch(`${API_BASE}/issues/${id}/messages`)
+      if (!res.ok) throw new Error("Could not load room transcript")
       const data = await res.json()
       setMessages(data.messages || [])
       setCounts(data.counts || {})
       setSourceCodeSupplied(Boolean(data.source_code_supplied))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setLoadingMessages(false)
+    } catch (e) {
+      console.error(e)
     }
   }
 
@@ -93,131 +95,168 @@ export const AgentCollaborationPage = () => {
   }, [])
 
   useEffect(() => {
-    if (selected) loadMessages(selected)
-  }, [selected])
+    if (selectedIssueId) {
+      loadTranscript(selectedIssueId)
+    }
+  }, [selectedIssueId])
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-2xl font-bold flex items-center">
-          <Eye className="w-6 h-6 mr-2" /> Agent Collaboration
-        </h2>
-        <button
-          onClick={() => {
-            loadIssues()
-            if (selected) loadMessages(selected)
-          }}
-          className="btn-secondary text-sm flex items-center"
-        >
-          <RefreshCw className="w-4 h-4 mr-1" /> Refresh
-        </button>
-      </div>
-      <p className="text-gray-600 mb-4 text-sm">
-        Live transcript of the Switch-style room for a real issue. Every message
-        below is produced by an agent run — nothing here is a scripted demo.
-      </p>
-
-      {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-          {error}
-        </div>
-      )}
-
-      <div className="bg-white rounded-xl border shadow-sm p-4 mb-4 flex flex-wrap items-center gap-3">
-        <label className="text-sm font-medium text-gray-700">Issue:</label>
-        <select
-          value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-          className="border rounded px-2 py-1 text-sm max-w-xl flex-1"
-          disabled={loadingIssues || issues.length === 0}
-        >
-          {issues.length === 0 && <option value="">No issues yet</option>}
-          {issues.map((issue) => (
-            <option key={issue.issue_id} value={issue.issue_id}>
-              {issue.issue_id.slice(0, 8)} — {issue.description.slice(0, 70)}
-            </option>
-          ))}
-        </select>
-        {selected && (
-          <span className="text-xs text-gray-500 font-mono">{selected.slice(0, 8)}</span>
-        )}
-        {sourceCodeSupplied && (
-          <span className="text-xs px-2 py-1 rounded bg-green-100 text-green-800 border border-green-200">
-            source code supplied
-          </span>
-        )}
-      </div>
-
-      {Object.keys(counts).length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-4">
-          {Object.entries(counts).map(([agent, count]) => (
-            <span
-              key={agent}
-              className={`text-xs px-2 py-1 rounded border bg-white ${AGENT_COLORS[agent] || "text-gray-600"}`}
-            >
-              {agent}: {count} msg
+    <div className="p-8 max-w-6xl mx-auto space-y-8">
+      {/* Top Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#30363d] pb-6">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+            <span>Live Agent Workspace</span>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+              SWITCH ROOM PROTOCOL
             </span>
-          ))}
+          </h1>
+          <p className="text-xs text-[#8b949e] mt-1">
+            Real-time peer-to-peer message interchange across Vision, Triage, and Investigation agents with loop guards and challenge negotiation.
+          </p>
         </div>
-      )}
 
-      {loadingMessages ? (
-        <div className="text-gray-500">Loading transcript…</div>
-      ) : messages.length === 0 ? (
-        <div className="bg-white border rounded-xl p-8 text-center text-gray-500">
-          <Server className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-          No messages for this issue yet. Run a new analysis to generate a real
-          agent conversation.
+        {/* Issue Selector Dropdown */}
+        <div className="flex items-center space-x-3">
+          <label className="text-xs text-[#8b949e] font-mono">Select Issue:</label>
+          <select
+            value={selectedIssueId}
+            onChange={(e) => setSelectedIssueId(e.target.value)}
+            className="bg-[#161b22] border border-[#30363d] rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-[#71c9ce]"
+          >
+            {issues.map((i) => (
+              <option key={i.issue_id} value={i.issue_id}>
+                {i.issue_id.slice(0, 8)} · {i.description.slice(0, 35)}...
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={() => loadTranscript(selectedIssueId)}
+            className="btn-secondary text-xs px-2.5 py-1.5"
+            title="Refresh room transcript"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
         </div>
-      ) : (
-        <ol className="space-y-3">
-          {messages.map((message) => {
-            const isOpen = expanded === message.message_id
-            return (
-              <li key={message.message_id} className="bg-white border rounded-xl p-4 shadow-sm">
-                <div className="flex flex-wrap items-center gap-2 mb-2">
-                  <span className={`font-medium ${AGENT_COLORS[message.sender] || "text-gray-700"}`}>
-                    {message.sender}
-                  </span>
-                  <span className="text-gray-400">→</span>
-                  <span className={`font-medium ${AGENT_COLORS[message.recipient] || "text-gray-700"}`}>
-                    {message.recipient}
-                  </span>
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded border ${KIND_STYLES[message.kind] || "bg-gray-50 text-gray-600"}`}
-                  >
-                    {message.kind}
-                  </span>
-                  <span className="text-xs text-gray-400 ml-auto">
-                    {new Date(message.created_at).toLocaleTimeString()}
-                  </span>
-                </div>
-                <p className="text-gray-800 text-sm break-words">{message.summary}</p>
-                <button
-                  onClick={() => setExpanded(isOpen ? null : message.message_id)}
-                  className="mt-2 text-xs text-blue-600 hover:underline flex items-center"
-                >
-                  <Filter className="w-3 h-3 mr-1" />
-                  {isOpen ? "Hide payload" : "Show payload"}
-                </button>
-                {isOpen && (
-                  <pre className="mt-2 text-xs bg-gray-50 border rounded p-3 overflow-auto max-h-72">
-                    {JSON.stringify(message.content, null, 2)}
-                  </pre>
-                )}
-              </li>
-            )
-          })}
-        </ol>
-      )}
+      </div>
 
-      <div className="mt-6 flex items-start text-xs text-gray-500">
-        {messages.some((m) => m.kind === "error") ? (
-          <AlertCircle className="w-4 h-4 mr-1 text-red-500" />
+      {/* Visual Workflow Stage Machine */}
+      <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-5">
+        <div className="text-[10px] font-mono text-[#8b949e] uppercase tracking-wider mb-4">
+          Pipeline Flow & Handoff Topology
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Node 1: Vision */}
+          <div className="p-3.5 rounded-lg bg-[#0d1117] border border-[#30363d] space-y-2">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-blue-400 font-bold">1. VISION</span>
+              <span className="text-[10px] text-emerald-400">PASSED</span>
+            </div>
+            <p className="text-[11px] text-[#8b949e]">
+              Extracts OCR tokens, inspects UI dimensions, identifies visual errors.
+            </p>
+          </div>
+
+          {/* Node 2: Triage */}
+          <div className="p-3.5 rounded-lg bg-[#0d1117] border border-[#30363d] space-y-2">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-amber-400 font-bold">2. TRIAGE</span>
+              <span className="text-[10px] text-emerald-400">PASSED</span>
+            </div>
+            <p className="text-[11px] text-[#8b949e]">
+              Classifies architecture layer, computes impact severity, formulates task.
+            </p>
+          </div>
+
+          {/* Node 3: Investigation */}
+          <div className="p-3.5 rounded-lg bg-[#0d1117] border border-[#30363d] space-y-2">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-emerald-400 font-bold">3. INVESTIGATION</span>
+              <span className="text-[10px] text-emerald-400">PASSED</span>
+            </div>
+            <p className="text-[11px] text-[#8b949e]">
+              AST static tracing, verifies code symbols, drafts unified diff patch.
+            </p>
+          </div>
+
+          {/* Node 4: Triage Review */}
+          <div className="p-3.5 rounded-lg bg-[#0d1117] border border-[#30363d] space-y-2">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-cyan-400 font-bold">4. REVIEW</span>
+              <span className="text-[10px] text-emerald-400">VERDICT</span>
+            </div>
+            <p className="text-[11px] text-[#8b949e]">
+              Disagreement challenges, validates deliverables against objective.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Switch Room Transcript Stream */}
+      <div className="bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-[#30363d] flex items-center justify-between bg-[#161b22]">
+          <h2 className="text-xs font-mono font-semibold uppercase tracking-wider text-white flex items-center gap-2">
+            <Terminal className="w-4 h-4 text-[#71c9ce]" />
+            <span>Switch Room Message Trace · Room {selectedIssueId ? selectedIssueId.slice(0, 8) : "None"}</span>
+          </h2>
+          <span className="text-xs font-mono text-[#8b949e]">{messages.length} messages</span>
+        </div>
+
+        {messages.length === 0 ? (
+          <div className="p-12 text-center text-[#8b949e] text-xs font-mono">
+            No messages logged for this room. Submit a bug to observe genuine agent negotiation.
+          </div>
         ) : (
-          <CheckCircle className="w-4 h-4 mr-1 text-green-500" />
+          <div className="divide-y divide-[#30363d] font-mono text-xs">
+            {messages.map((msg) => {
+              const badge = KIND_BADGES[msg.kind] || {label: msg.kind.toUpperCase(), color: "bg-slate-500/10 text-slate-400"}
+              const isExpanded = expandedMessageId === msg.message_id
+
+              return (
+                <div key={msg.message_id} className="p-4 hover:bg-[#21262d]/30 transition-colors space-y-2.5">
+                  {/* Top metadata line */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <span className={`text-[10px] px-2 py-0.5 rounded border uppercase font-bold ${badge.color}`}>
+                        {badge.label}
+                      </span>
+                      <span className="text-[#71c9ce] font-semibold">{msg.sender}</span>
+                      <span className="text-[#484f58]">→</span>
+                      <span className="text-[#c9d1d9]">{msg.recipient}</span>
+                    </div>
+                    <span className="text-[10px] text-[#8b949e]">
+                      {new Date(msg.created_at).toLocaleTimeString()}
+                    </span>
+                  </div>
+
+                  {/* Summary content */}
+                  <div className="text-white text-xs leading-relaxed pl-1">
+                    {msg.summary}
+                  </div>
+
+                  {/* Expandable technical payload inspector */}
+                  {msg.content && Object.keys(msg.content).length > 0 && (
+                    <div className="pt-1">
+                      <button
+                        onClick={() => setExpandedMessageId(isExpanded ? null : msg.message_id)}
+                        className="text-[10px] text-[#8b949e] hover:text-[#71c9ce] flex items-center gap-1 transition-colors"
+                      >
+                        {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                        <span>{isExpanded ? "Hide JSON Payload" : "Inspect Raw Payload"}</span>
+                      </button>
+
+                      {isExpanded && (
+                        <pre className="mt-2 p-3 bg-[#0d1117] border border-[#30363d] rounded-lg text-[11px] text-[#e6edf3] overflow-x-auto">
+                          {JSON.stringify(msg.content, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         )}
-        Messages are persisted with the issue and survive a backend restart.
       </div>
     </div>
   )

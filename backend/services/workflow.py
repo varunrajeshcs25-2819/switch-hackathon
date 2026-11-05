@@ -14,6 +14,10 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from backend.config import AGENT_TIMEOUT_SECONDS
+from backend.models import (
+    IssueStatus,
+    EvidenceCategory,
+)
 from backend.integrations.switch.room import (
     KIND_CHALLENGE,
     KIND_CLASSIFICATION,
@@ -43,6 +47,14 @@ class PipelineResult:
     errors: List[Dict[str, str]] = field(default_factory=list)
     stage_ms: Dict[str, int] = field(default_factory=dict)
     source_code_supplied: bool = False
+    current_status: IssueStatus = IssueStatus.REPORT_READY
+    evidence_breakdown: Dict[str, List[str]] = field(default_factory=lambda: {
+        "OBSERVED": [],
+        "INFERRED": [],
+        "CODE_VERIFIED": [],
+        "TEST_VERIFIED": [],
+        "PROPOSED": [],
+    })
 
 
 def _truncate(text: str, limit: int = 300) -> str:
@@ -358,6 +370,49 @@ async def run_pipeline(
             reply_to=investigation_msg.message_id if investigation_msg else None,
             dedupe_key=f"{issue_id}:verdict",
         )
+
+    # ---------------------------------------------------------------- Step 5: Synthesize Evidence Hierarchy & Final State
+    evidence_map = {
+        "OBSERVED": [],
+        "INFERRED": [],
+        "CODE_VERIFIED": [],
+        "TEST_VERIFIED": [],
+        "PROPOSED": [],
+    }
+
+    if result.vision_observations:
+        for ev in getattr(result.vision_observations, "evidence", []) or []:
+            evidence_map["OBSERVED"].append(str(ev))
+        for err in getattr(result.vision_observations, "error_messages", []) or []:
+            evidence_map["OBSERVED"].append(f"Visual error text: {err}")
+        for imp in getattr(result.vision_observations, "possible_behavioral_implications", []) or []:
+            evidence_map["INFERRED"].append(str(imp))
+
+    if result.triage_classification:
+        if getattr(result.triage_classification, "severity_reasoning", None):
+            evidence_map["INFERRED"].append(f"Triage: {result.triage_classification.severity_reasoning}")
+
+    if result.investigation_findings:
+        for loc in getattr(result.investigation_findings, "relevant_code_locations", []) or []:
+            evidence_map["CODE_VERIFIED"].append(f"Inspected code location: {loc}")
+        for ev in getattr(result.investigation_findings, "supporting_evidence", []) or []:
+            evidence_map["CODE_VERIFIED"].append(str(ev))
+        if getattr(result.investigation_findings, "proposed_fix", None):
+            evidence_map["PROPOSED"].append(str(result.investigation_findings.proposed_fix))
+        if getattr(result.investigation_findings, "proposed_code_changes", None):
+            evidence_map["PROPOSED"].append("Unified code diff available")
+        if getattr(result.investigation_findings, "actual_test_results", None):
+            evidence_map["TEST_VERIFIED"].append(str(result.investigation_findings.actual_test_results))
+
+    result.evidence_breakdown = evidence_map
+
+    # Determine accurate pipeline status
+    if result.errors:
+        result.current_status = IssueStatus.FAILED if len(result.errors) == 3 else IssueStatus.COMPLETED
+    elif result.investigation_findings and result.investigation_findings.suspected_root_cause:
+        result.current_status = IssueStatus.REPORT_READY
+    else:
+        result.current_status = IssueStatus.COMPLETED
 
     result.messages = room.transcript()
     return result

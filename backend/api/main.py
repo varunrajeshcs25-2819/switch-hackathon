@@ -269,7 +269,7 @@ async def create_issue(
     if findings is not None:
         findings.issue_id = issue_id
 
-    status = IssueStatus.COMPLETED if findings is not None else IssueStatus.INVESTIGATING
+    status = result.current_status
 
     issue = PydanticIssueBase(
         id=issue_id,
@@ -291,6 +291,7 @@ async def create_issue(
         "activity_history": _activity_from_messages(issue_id, result.messages),
         "messages": result.messages,
         "source_code_supplied": bool(source_code),
+        "evidence_breakdown": result.evidence_breakdown,
     }
     _persist(issue_id)
 
@@ -565,5 +566,12 @@ async def get_report(issue_id: str):
         agent_activity_history=_normalize_activity_history(
             data.get("activity_history", [])
         ),
+        evidence_breakdown=data.get("evidence_breakdown") or {
+            "OBSERVED": [],
+            "INFERRED": [],
+            "CODE_VERIFIED": [],
+            "TEST_VERIFIED": [],
+            "PROPOSED": [],
+        },
     )
     return {"status": "success", "report": report.model_dump(mode="json")}

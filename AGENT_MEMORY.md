@@ -66,3 +66,29 @@ This file tracks the architecture, discovered defects, fixes, refinements, test 
   - All 5 integration tests in `tests/test_multiagent_integration.py` passed.
   - Full test suite: **38/38 tests passing (100% pass rate)**.
 - **Status**: STABLE & VERIFIED.
+
+---
+
+### Complete Product Quality & Multi-Agent Intelligence Overhaul
+- **Date**: 2026-11-06
+- **Problems Discovered**:
+  1. Frontend UI had basic styling without the visual cues and information hierarchy of modern engineering platforms.
+  2. Investigation reports lacked distinction between directly observed facts, inferred causes, and proposed fixes.
+  3. Screenshots containing IDEs, terminals, or compiler errors (such as unclosed Java parenthesis) required on-device OCR extraction to prevent visual misses.
+  4. Workflow state machine needed explicit states for tracking pipeline execution.
+- **Improvements Implemented**:
+  1. **5-Tier Epistemological Evidence Taxonomy**: Integrated `[OBSERVED]`, `[INFERRED]`, `[CODE VERIFIED]`, `[TEST VERIFIED]`, and `[PROPOSED]` classifications into backend models, reports, and frontend UI.
+  2. **On-Device RapidOCR Engine**: Integrated `rapidocr-onnxruntime` into Vision Agent, reading syntax errors, compiler tracebacks, and terminal logs from uploaded screenshots without external API calls.
+  3. **Multi-Agent State Machine**: Expanded `IssueStatus` enum with granular pipeline states (`VALIDATING_INPUT`, `VISION_RUNNING`, `TRIAGE_RUNNING`, `INVESTIGATION_RUNNING`, `AWAITING_REVIEW`, `REPORT_READY`).
+  4. **Engineering Workspace Redesign**:
+     - **Screen 1 (Command Center)**: High-density dark engineering console with real-time stats from SQLite, bug callset table, and live agent room stream.
+     - **Screen 2 (New Bug Analysis)**: Full-featured submission workspace with drag-and-drop file upload, thumbnail preview, "+ Add New Bug" reset flow, and code snippet inputs.
+     - **Screen 3 (Live Agent Workspace)**: Visual 4-stage pipeline topology (`VISION` -> `TRIAGE` -> `INVESTIGATION` -> `REVIEW`), real-time Switch room transcript stream, and expandable JSON payload inspector.
+     - **Screen 4 (Investigation Reports)**: Comprehensive post-mortem layout with 5-tier evidence badges, copyable unified diffs, root-cause explanation, and copy actions.
+- **Tests Executed & Actual Results**:
+  - Executed Java compilation error end-to-end test (`System.out.println("Hello World (`) with dark-theme IDE screenshot.
+  - Vision successfully extracted OCR text and identified syntax error.
+  - Triage classified as `functional_bug`/`backend_error` with `medium` severity.
+  - Investigation identified missing quote and parenthesis and generated valid unified diff (`--- a/App.java` -> `+++ b/App.java`).
+  - Frontend compiled cleanly with zero build errors (`dist/assets/index-B47A4K9H.js`).
+- **Status**: PRODUCTION READY & VERIFIED.

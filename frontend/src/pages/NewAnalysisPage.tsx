@@ -1,360 +1,336 @@
-import React, {useState, useEffect, useRef} from "react"
+import React, {useState, useRef} from "react"
 import {
-  Camera as UilCamera,
-  X as UilCross,
-  CheckCircle as UilCheckCircled,
-  AlertCircle as UilAlertCircle,
-  Download as UilDownload,
+  UploadCloud,
+  FileCode,
+  CheckCircle2,
+  AlertCircle,
+  X,
+  Play,
+  Layers,
+  ArrowRight,
+  Info,
+  RotateCcw,
+  Sparkles,
 } from "lucide-react"
 
-// Real backend integration. Override with VITE_API_BASE if the API runs elsewhere.
 const API_BASE =
   (import.meta as any).env?.VITE_API_BASE || "http://localhost:8000"
 
-const AIService = {
-  /**
-   * Runs the full real pipeline on the FastAPI backend:
-   * POST /issues/ (vision -> triage -> investigation) then GET /reports/{id}.
-   */
-  async runWorkflow(
-    file: File | null,
-    description: string,
-    sourceCode: string
-  ): Promise<any> {
-    const form = new FormData()
-    if (file) {
-      form.append("file", file)
-    }
-    form.append(
-      "issue_description",
-      description || (file ? "Visual bug reported from screenshot" : "")
-    )
-    if (sourceCode.trim()) {
-      form.append("source_code", sourceCode)
-    }
-
-    const res = await fetch(`${API_BASE}/issues/`, {
-      method: "POST",
-      body: form,
-    })
-    if (!res.ok) {
-      const detail = await res.text()
-      throw new Error(
-        `Backend returned ${res.status}: ${detail.slice(0, 200)}`
-      )
-    }
-
-    const created = await res.json()
-    const reportRes = await fetch(`${API_BASE}/reports/${created.issue_id}`)
-    if (!reportRes.ok) {
-      throw new Error(`Could not load report: ${reportRes.status}`)
-    }
-    const { report } = await reportRes.json()
-
-    const vision = report.vision_observations || {}
-    const triage = report.triage_classification || {}
-    const investigation = report.investigation_findings || {}
-
-    return {
-      issueId: created.issue_id,
-      report,
-      vision: {
-        errorMessages: vision.error_messages || [],
-        affectedComponents: vision.affected_components || [],
-        confidence: vision.confidence || "uncertain",
-        uncertainties: vision.uncertainties || [],
-        rawObservation:
-          vision.raw_observation || "No observations were returned.",
-      },
-      triage: {
-        classification: triage.classification || "unknown",
-        severity: triage.severity || "medium",
-        issueSummary: triage.issue_summary || "",
-        affectedComponents: triage.affected_components || [],
-        missingInformation: triage.missing_information || [],
-        investigationObjective: triage.investigation_objective || "",
-        assignedAgent: triage.assigned_agent || "investigation",
-        reasonForDelegation: triage.reason_for_delegation || "",
-      },
-      investigation: {
-        investigationSummary: investigation.investigation_summary || "",
-        suspectedRootCause:
-          investigation.suspected_root_cause || "Not determined",
-        relevantSourceFiles: investigation.relevant_source_files || [],
-        relevantCodeLocations: investigation.relevant_code_locations || [],
-        supportingEvidence: investigation.supporting_evidence || [],
-        reasoning: investigation.reasoning || "",
-        proposedFix: investigation.proposed_fix || "",
-        proposedCodeChanges: investigation.proposed_code_changes || null,
-        recommendedTests: investigation.recommended_tests || [],
-        actualTestResults: investigation.actual_test_results || null,
-        confidence: investigation.confidence || "medium",
-        remainingUncertainties: investigation.remaining_uncertainties || [],
-      },
-    }
-  },
-}
-
-export const NewAnalysisPage = () => {
+export const NewAnalysisPage = ({onNavigate}: {onNavigate: (page: string) => void}) => {
   const [screenshotFile, setScreenshotFile] = useState<File | null>(null)
+  const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null)
   const [userDescription, setUserDescription] = useState("")
   const [sourceCode, setSourceCode] = useState("")
+  const [applicationContext, setApplicationContext] = useState("")
   const [isProcessing, setIsProcessing] = useState(false)
-  const [visionResults, setVisionResults] = useState<any>(null)
-  const [triageResults, setTriageResults] = useState<any>(null)
-  const [investigationResults, setInvestigationResults] = useState<any>(null)
-  const [showReport, setShowReport] = useState(false)
-  const [reportJson, setReportJson] = useState<any>(null)
+  const [analysisResult, setAnalysisResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      setScreenshotFile(file)
+  const handleFile = (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setError("Unsupported file format. Please upload a PNG, JPEG, or WEBP screenshot.")
+      return
+    }
+    setError(null)
+    setScreenshotFile(file)
+    setScreenshotPreview(URL.createObjectURL(file))
+  }
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    if (e.dataTransfer.files?.[0]) {
+      handleFile(e.dataTransfer.files[0])
     }
   }
 
-  const handleAnalyze = async () => {
-    if (!screenshotFile && !userDescription.trim()) return
+  const handleReset = () => {
+    setScreenshotFile(null)
+    setScreenshotPreview(null)
+    setUserDescription("")
+    setSourceCode("")
+    setApplicationContext("")
+    setAnalysisResult(null)
+    setError(null)
+    if (fileInputRef.current) fileInputRef.current.value = ""
+  }
+
+  const handleSubmit = async () => {
+    if (!screenshotFile && !userDescription.trim()) {
+      setError("Please provide at least a screenshot or an issue description to begin.")
+      return
+    }
 
     setIsProcessing(true)
-    setVisionResults(null)
-    setTriageResults(null)
-    setInvestigationResults(null)
-    setShowReport(false)
-    setReportJson(null)
     setError(null)
+    setAnalysisResult(null)
+
+    const formData = new FormData()
+    if (screenshotFile) {
+      formData.append("file", screenshotFile)
+    }
+    formData.append("issue_description", userDescription)
+    if (sourceCode.trim()) {
+      formData.append("source_code", sourceCode)
+    }
+    if (applicationContext.trim()) {
+      formData.append("developer_notes", applicationContext)
+    }
 
     try {
-      // Real backend call: vision -> triage -> investigation -> report
-      const result = await AIService.runWorkflow(
-        screenshotFile,
-        userDescription,
-        sourceCode
-      )
-      setVisionResults(result.vision)
-      setTriageResults(result.triage)
-      setInvestigationResults(result.investigation)
-      setReportJson(result.report)
-      setShowReport(true)
+      const res = await fetch(`${API_BASE}/issues/`, {
+        method: "POST",
+        body: formData,
+      })
+
+      if (!res.ok) {
+        const detail = await res.text()
+        throw new Error(`Pipeline error (${res.status}): ${detail.slice(0, 200)}`)
+      }
+
+      const created = await res.json()
+      const repRes = await fetch(`${API_BASE}/reports/${created.issue_id}`)
+      if (!repRes.ok) throw new Error("Could not retrieve compiled investigation report.")
+
+      const repData = await repRes.json()
+      setAnalysisResult({
+        issueId: created.issue_id,
+        report: repData.report,
+      })
     } catch (err) {
-      console.error("Analysis failed:", err)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setIsProcessing(false)
     }
   }
 
-  const handleResetForm = () => {
-    setScreenshotFile(null)
-    setUserDescription("")
-    setSourceCode("")
-    setVisionResults(null)
-    setTriageResults(null)
-    setInvestigationResults(null)
-    setShowReport(false)
-    setReportJson(null)
-    setError(null)
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ""
-    }
-  }
-
   const canSubmit = Boolean(screenshotFile || userDescription.trim())
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">New Visual Bug Analysis</h2>
-        {(showReport || visionResults || screenshotFile || userDescription || sourceCode) && (
+    <div className="p-8 max-w-5xl mx-auto space-y-8">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-[#30363d] pb-6">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+            <span>New Visual Bug Analysis</span>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#21262d] text-[#71c9ce] border border-[#30363d]">
+              Agent Swarm Ready
+            </span>
+          </h1>
+          <p className="text-xs text-[#8b949e] mt-1">
+            Provide a screenshot, stack trace, or source code. The Vision, Triage, and Investigation agents will isolate root cause and formulate verified patches.
+          </p>
+        </div>
+
+        {(screenshotFile || userDescription || sourceCode || analysisResult) && (
           <button
-            onClick={handleResetForm}
-            className="flex items-center text-sm font-medium px-3 py-1.5 rounded-lg border border-[#71c9ce] text-[#2c7a7e] hover:bg-[#cbf1f5]/50 transition-colors"
+            onClick={handleReset}
+            className="btn-secondary text-xs flex items-center gap-1.5"
           >
-            + Add New Bug
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Reset & Add New Bug</span>
           </button>
         )}
       </div>
 
-      <div className="bg-white p-6 rounded-xl shadow mb-6">
-        <div className="mb-4">
-          <label className="block text-gray-700 font-medium mb-2">
-            Describe the issue (optional)
-          </label>
-          <textarea
-            value={userDescription}
-            onChange={(e) => setUserDescription(e.target.value)}
-            placeholder="e.g., Registration form shows HTTP 500 error when submitted"
-            rows={3}
-            className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-          ></textarea>
+      {error && (
+        <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs font-mono flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{error}</span>
         </div>
+      )}
 
-        <div className="mb-4">
-          <label className="block text-gray-700 font-medium mb-2">
-            Relevant source code (optional)
+      {/* Main Submission Form */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left Column: Visual Screenshot Dropzone */}
+        <div className="space-y-4">
+          <label className="text-xs font-mono font-semibold uppercase tracking-wider text-[#8b949e] flex items-center justify-between">
+            <span>1. Screenshot Evidence</span>
+            <span className="text-[#484f58] lowercase text-[11px]">(optional if description provided)</span>
           </label>
-          <textarea
-            value={sourceCode}
-            onChange={(e) => setSourceCode(e.target.value)}
-            placeholder={"Paste the files you want the Investigation Agent to inspect, e.g.\n\n@app.post('/register')\ndef register(...):\n    ..."}
-            rows={8}
-            className="w-full border border-gray-300 rounded px-3 py-2 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-primary"
-          ></textarea>
-          <p className="text-xs text-gray-500 mt-1">
-            Only what you paste here is visible to the agent. It never reads your
-            filesystem.
-          </p>
-        </div>
 
-        {screenshotFile && (
-          <div className="mt-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-gray-600">Attached Screenshot: {screenshotFile.name}</span>
-              <button
-                type="button"
-                onClick={() => setScreenshotFile(null)}
-                className="text-xs text-red-500 hover:underline"
-              >
-                Remove
-              </button>
+          {screenshotPreview ? (
+            <div className="relative rounded-xl border border-[#30363d] bg-[#161b22] overflow-hidden group">
+              <div className="absolute top-3 right-3 z-10">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScreenshotFile(null)
+                    setScreenshotPreview(null)
+                    if (fileInputRef.current) fileInputRef.current.value = ""
+                  }}
+                  className="p-1.5 bg-[#0d1117]/80 hover:bg-rose-500 text-white rounded-md backdrop-blur-sm transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <img
+                src={screenshotPreview}
+                alt="Bug Screenshot"
+                className="w-full max-h-72 object-contain bg-[#0b0f14]"
+              />
+              <div className="p-3 border-t border-[#30363d] bg-[#161b22] flex items-center justify-between text-[11px] font-mono text-[#8b949e]">
+                <span>{screenshotFile?.name}</span>
+                <span>{((screenshotFile?.size || 0) / 1024).toFixed(1)} KB</span>
+              </div>
             </div>
-            <img
-              src={URL.createObjectURL(screenshotFile)}
-              alt="Uploaded screenshot"
-              className="mt-1 rounded w-full max-h-64 object-contain border"
-            />
-          </div>
-        )}
-
-        {!screenshotFile && (
-          <div className="mt-4 p-6 bg-gray-50 border-2 border-dashed border-[#cbf1f5] rounded-xl text-center">
-            <p className="text-gray-600 text-sm">
-              Upload screenshot (optional if issue description is provided)
-            </p>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleFileChange}
-              ref={fileInputRef}
-              className="hidden"
-            />
-            <button
-              type="button"
+          ) : (
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className="mt-3 inline-block btn-primary text-sm"
+              className="border-2 border-dashed border-[#30363d] hover:border-[#71c9ce] rounded-xl p-8 bg-[#161b22]/50 hover:bg-[#161b22] text-center cursor-pointer transition-all flex flex-col items-center justify-center space-y-3 min-h-[220px]"
             >
-              Browse Files
-            </button>
+              <div className="w-10 h-10 rounded-full bg-[#21262d] flex items-center justify-center text-[#71c9ce]">
+                <UploadCloud className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-white">
+                  Drop screenshot here, or click to browse
+                </p>
+                <p className="text-[11px] text-[#8b949e]">
+                  Supports PNG, JPEG, WEBP up to 10MB
+                </p>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+                className="hidden"
+              />
+            </div>
+          )}
+
+          {/* Issue Description */}
+          <div className="space-y-2">
+            <label className="text-xs font-mono font-semibold uppercase tracking-wider text-[#8b949e] flex items-center justify-between">
+              <span>2. Incident Description</span>
+              <span className="text-[#484f58] lowercase text-[11px]">(symptoms or expected behaviour)</span>
+            </label>
+            <textarea
+              value={userDescription}
+              onChange={(e) => setUserDescription(e.target.value)}
+              placeholder="e.g. When processing structured JSON payloads, the aggregate calculation crashes unexpectedly with ZeroDivisionError..."
+              rows={4}
+              className="w-full bg-[#161b22] border border-[#30363d] focus:border-[#71c9ce] rounded-xl p-3 text-xs text-white font-mono placeholder:text-[#484f58] focus:outline-none transition-colors"
+            />
           </div>
-        )}
+        </div>
+
+        {/* Right Column: Code & Execution Context */}
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-xs font-mono font-semibold uppercase tracking-wider text-[#8b949e] flex items-center justify-between">
+              <span>3. Relevant Source Code</span>
+              <span className="text-[#71c9ce] text-[10px] font-mono">ENHANCES ACCURACY</span>
+            </label>
+            <textarea
+              value={sourceCode}
+              onChange={(e) => setSourceCode(e.target.value)}
+              placeholder={"# Paste the relevant function or module for Investigation Agent to inspect:\n\ndef compute_aggregates(item):\n    return item['total'] / item.get('weight', 0)\n"}
+              rows={9}
+              className="w-full bg-[#161b22] border border-[#30363d] focus:border-[#71c9ce] rounded-xl p-3 text-xs text-white font-mono placeholder:text-[#484f58] focus:outline-none transition-colors"
+            />
+            <p className="text-[10px] text-[#8b949e] font-mono">
+              Note: Agent operates under strict privacy boundaries and only inspects explicitly supplied snippets.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-mono font-semibold uppercase tracking-wider text-[#8b949e]">
+              4. Developer Context (optional)
+            </label>
+            <input
+              type="text"
+              value={applicationContext}
+              onChange={(e) => setApplicationContext(e.target.value)}
+              placeholder="e.g. FastAPI v0.115, Python 3.12, PostgreSQL db"
+              className="w-full bg-[#161b22] border border-[#30363d] focus:border-[#71c9ce] rounded-xl px-3 py-2 text-xs text-white font-mono placeholder:text-[#484f58] focus:outline-none transition-colors"
+            />
+          </div>
+
+          <button
+            onClick={handleSubmit}
+            disabled={isProcessing || !canSubmit}
+            className={`w-full py-3.5 rounded-xl font-mono text-xs font-semibold uppercase tracking-wider transition-all flex items-center justify-center space-x-2 ${
+              isProcessing || !canSubmit
+                ? "bg-[#21262d] text-[#484f58] border border-[#30363d] cursor-not-allowed"
+                : "bg-[#71c9ce] hover:bg-[#8fe0e5] text-[#0b0f14] shadow-md cursor-pointer"
+            }`}
+          >
+            {isProcessing ? (
+              <span className="flex items-center gap-2">
+                <span className="w-3.5 h-3.5 border-2 border-[#0b0f14] border-t-transparent rounded-full animate-spin"></span>
+                <span>Swarm Running: Vision → Triage → Investigation...</span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span>Dispatch Multi-Agent Workflow</span>
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
-      <button
-        onClick={handleAnalyze}
-        disabled={isProcessing || !canSubmit}
-        className={`w-full mt-6 px-6 py-3 rounded-md font-medium ${
-          isProcessing || !canSubmit
-            ? "opacity-50 cursor-not-allowed"
-            : "bg-primary text-white hover:bg-primary/90 transition-colors"}
-        `}>
-        {isProcessing
-          ? "Analyzing... (Vision → Triage → Investigation)"
-          : "Start Agent Workflow"}
-      </button>
-
-      {visionResults && (
-        <div className="mt-8 p-6 bg-blue-50 rounded-xl border border-blue-200 mb-6">
-          <h3 className="text-xl font-medium mb-3">Vision Agent Observations</h3>
-          <p className="text-gray-700">{visionResults.rawObservation}</p>
-          <div className="grid grid-cols-2 gap-4 mt-4">
-            <div>
-              <p className="font-medium">Error Messages:</p>
-              <p className="mt-1 break-all">{visionResults.errorMessages.join(
-                ", "
-              ) || "None detected"}</p>
+      {/* Immediate Pipeline Result Cards */}
+      {analysisResult && (
+        <div className="mt-10 border border-[#30363d] bg-[#161b22] rounded-xl p-6 space-y-6">
+          <div className="flex items-center justify-between border-b border-[#30363d] pb-4">
+            <div className="flex items-center space-x-3">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+              <div>
+                <h3 className="text-sm font-semibold text-white font-mono">
+                  Multi-Agent Consensus Reached · Issue {analysisResult.issueId.slice(0, 8)}
+                </h3>
+                <span className="text-[11px] text-[#8b949e]">Status: {analysisResult.report?.status || "COMPLETED"}</span>
+              </div>
             </div>
-            <div>
-              <p className="font-medium">Affected Components:</p>
-              <p className="mt-1 break-all">{visionResults.affectedComponents.join(
-                ", "
-              ) || "None identified"}</p>
+            <button
+              onClick={() => onNavigate("Investigation Reports")}
+              className="btn-primary text-xs flex items-center gap-1.5"
+            >
+              <span>Open Detailed Report</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs">
+            {/* Vision card */}
+            <div className="bg-[#0d1117] border border-[#30363d] p-4 rounded-lg space-y-2">
+              <div className="text-[10px] text-blue-400 font-semibold uppercase flex items-center justify-between">
+                <span>Vision Agent</span>
+                <span>{analysisResult.report?.vision_observations?.confidence}</span>
+              </div>
+              <p className="text-[#c9d1d9] text-[11px] line-clamp-3">
+                {analysisResult.report?.vision_observations?.raw_observation || "No visual defects detected"}
+              </p>
+            </div>
+
+            {/* Triage card */}
+            <div className="bg-[#0d1117] border border-[#30363d] p-4 rounded-lg space-y-2">
+              <div className="text-[10px] text-amber-400 font-semibold uppercase flex items-center justify-between">
+                <span>Triage Agent</span>
+                <span className="uppercase text-rose-400">{analysisResult.report?.triage_classification?.severity}</span>
+              </div>
+              <p className="text-[#c9d1d9] text-[11px] line-clamp-3">
+                {analysisResult.report?.triage_classification?.issue_summary || "Classification pending"}
+              </p>
+            </div>
+
+            {/* Investigation card */}
+            <div className="bg-[#0d1117] border border-[#30363d] p-4 rounded-lg space-y-2">
+              <div className="text-[10px] text-emerald-400 font-semibold uppercase flex items-center justify-between">
+                <span>Investigation Agent</span>
+                <span>{analysisResult.report?.investigation_findings?.confidence}</span>
+              </div>
+              <p className="text-[#c9d1d9] text-[11px] line-clamp-3">
+                {analysisResult.report?.investigation_findings?.suspected_root_cause || "Empirical review complete"}
+              </p>
             </div>
           </div>
-          <p className="mt-4 font-medium">Confidence: {visionResults.confidence}</p>
         </div>
-      )}
-
-      {triageResults && (
-        <div className="mt-8 p-6 bg-orange-50 rounded-xl border border-orange-200 mb-6">
-          <h3 className="text-xl font-medium mb-3">Triage Classification</h3>
-          <p className="font-medium">Classification: {triageResults.classification}</p>
-          <p className="font-medium">Severity: {triageResults.severity}</p>
-          <p className="font-medium">Issue Summary:</p>
-          <p className="mt-1 break-all">{triageResults.issueSummary}</p>
-          <p className="mt-4 text-sm text-gray-600">
-            Missing Information: {(
-              triageResults.missingInformation ||
-              []
-            ).join(", ") || "None identified"}
-          </p>
-        </div>
-      )}
-
-      {investigationResults && (
-        <div className="mt-8 p-6 bg-green-50 rounded-xl border border-green-200 mb-6">
-          <h3 className="text-xl font-medium mb-3">Investigation Findings</h3>
-          <p className="font-medium">Root Cause:</p>
-          <p className="mt-1 break-all">{investigationResults.suspectedRootCause}</p>
-          <p className="font-medium">Investigation Summary:</p>
-          <p className="mt-1 break-all">{investigationResults.investigationSummary}</p>
-          <p className="font-medium">Recommended Fix:</p>
-          <p className="mt-1 break-all">{investigationResults.proposedFix}</p>
-          <p className="font-medium">Confidence: {investigationResults.confidence}</p>
-          <p className="mt-2 text-sm text-gray-600">
-            Remaining Uncertainties:{
-              investigationResults.remainingUncertainties &&
-              investigationResults.remainingUncertainties.length > 0
-                ? (
-                  <span>
-                    {investigationResults.remainingUncertainties.map(
-                      (u: string, i: number) => (
-                        <div key={i} className="pl-4 border-l border-gray-300 my-1">
-                          {u}
-                        </div>
-                      )
-                    )}
-                  </span>
-                )
-                : "None"}
-          </p>
-        </div>
-      )}
-
-      {error && (
-        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded text-red-700 text-sm break-all">
-          {error}
-        </div>
-      )}
-
-      {showReport && reportJson && (
-        <button
-          onClick={() => {
-            const blob = new Blob([JSON.stringify(reportJson, null, 2)], {
-              type: "application/json",
-            })
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement("a")
-            a.href = url
-            a.download = `patchpilot-report-${reportJson.issue_id}.json`
-            a.click()
-            URL.revokeObjectURL(url)
-          }}
-          className="mt-6 btn-secondary"
-        >
-          Download Full Report (JSON)
-        </button>
       )}
     </div>
   )

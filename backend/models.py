@@ -13,14 +13,34 @@ from typing import Optional, List, Dict, Any
 
 
 class IssueStatus(str, Enum):
-    """Status of a bug investigation."""
+    """Status of a bug investigation across the multi-agent state machine."""
     NEW = "new"
     ASSIGNED = "assigned"
     INVESTIGATING = "investigating"
     REPORTED = "reported"
-    COMPLETED = "completed"
     RESOLVED = "resolved"
+    VALIDATING_INPUT = "validating_input"
+    VISION_RUNNING = "vision_running"
+    VISION_COMPLETED = "vision_completed"
+    VISION_FAILED = "vision_failed"
+    TRIAGE_RUNNING = "triage_running"
+    INVESTIGATION_ASSIGNED = "investigation_assigned"
+    INVESTIGATION_RUNNING = "investigation_running"
+    AWAITING_REVIEW = "awaiting_review"
+    REINVESTIGATION_REQUIRED = "reinvestigation_required"
+    REPORT_READY = "report_ready"
+    COMPLETED = "completed"
+    FAILED = "failed"
     CLOSED = "closed"
+
+
+class EvidenceCategory(str, Enum):
+    """Rigorous 5-level epistemological classification for findings."""
+    OBSERVED = "OBSERVED"           # Directly visible or extracted via OCR
+    INFERRED = "INFERRED"           # Reasoned technical hypothesis
+    CODE_VERIFIED = "CODE_VERIFIED" # Empirically verified in inspected source code
+    TEST_VERIFIED = "TEST_VERIFIED" # Validated through an executed test
+    PROPOSED = "PROPOSED"           # Suggested patch/remediation not yet applied
 
 
 class IssueClassification(str, Enum):
@@ -140,8 +160,15 @@ class PydanticFinalReport(BaseModel):
     vision_observations: Optional[PydanticVisionObservations] = None
     triage_classification: Optional[PydanticTriageClassification] = None
     investigation_findings: Optional[PydanticInvestigationFindings] = None
-    status: IssueStatus = IssueStatus.CLOSED
+    status: IssueStatus = IssueStatus.REPORT_READY
     created_at: datetime
     agent_activity_history: List[PydanticAgentActivity] = Field(default_factory=list)
+    evidence_breakdown: Dict[str, List[str]] = Field(default_factory=lambda: {
+        "OBSERVED": [],
+        "INFERRED": [],
+        "CODE_VERIFIED": [],
+        "TEST_VERIFIED": [],
+        "PROPOSED": [],
+    })
 
     model_config = {"use_enum_values": True}
