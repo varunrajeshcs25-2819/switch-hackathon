@@ -10,8 +10,14 @@ Environment variables:
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).parent.resolve()
+PROJECT_ROOT = BASE_DIR.parent.resolve()
+
+# Load .env file from project root or backend dir
+load_dotenv(PROJECT_ROOT / ".env")
+load_dotenv(BASE_DIR / ".env")
 
 # API Keys
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
@@ -20,7 +26,7 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 # Gemini model used by all three agents
 # gemini-2.0-flash is available on the free tier
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 
 # Database
 DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{BASE_DIR}/patchpilot.db")

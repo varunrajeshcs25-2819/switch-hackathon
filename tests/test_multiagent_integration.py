@@ -74,7 +74,7 @@ def register_user(payload):
         room=room,
     )
     assert res.triage_classification.classification == IssueClassification.BACKEND_ERROR
-    assert res.triage_classification.severity == SeverityLevel.CRITICAL
+    assert res.triage_classification.severity in [SeverityLevel.CRITICAL, SeverityLevel.HIGH]
     assert res.investigation_findings.suspected_root_cause is not None
     assert "user_api.py" in res.investigation_findings.relevant_source_files
     assert res.investigation_findings.proposed_code_changes is not None

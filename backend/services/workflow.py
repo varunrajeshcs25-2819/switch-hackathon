@@ -138,9 +138,9 @@ def _evaluate(triage, findings, source_code: Optional[str]) -> Dict[str, Any]:
     if not source_code:
         missing.append("source code evidence")
 
-    addressed = _has_real_value(root_cause) and (
-        bool(source_code) or "code" not in objective.lower()
-    )
+    classification = (getattr(triage, "classification", "") or "").lower()
+    needs_code = bool(source_code) or ("code" not in objective.lower() and classification not in {"backend_error", "api_integration_error"})
+    addressed = _has_real_value(root_cause) and needs_code
     return {
         "objective": objective,
         "addressed": addressed,
