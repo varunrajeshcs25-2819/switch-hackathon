@@ -29,30 +29,41 @@ This file tracks the architecture, discovered defects, fixes, refinements, test 
   5. **Direct Evidence vs. Inference Grounding**: Explicit rules in prompt to prevent hallucinating unseen browser console errors, unseen API calls, or backend stack traces.
   6. **Datetime Modernization**: Replaced `datetime.utcnow()` with `datetime.now(timezone.utc)` for agent activity logging.
 - **Tests Executed & Actual Results**:
-  - Created `tests/test_vision_agent.py` covering:
-    - Clear visible error parsing (HTTP 500)
-    - Multi-issue UI layout defect parsing
-    - Clean screenshot with no visible bugs (returns low confidence / honest assessment)
-    - Fallback parser resilience on freeform text
-    - Input sanity checks (empty base64 string handling)
-    - Honest fallback when no API key is configured
-    - Retry mechanism on transient network failure
+  - Created `tests/test_vision_agent.py` covering clear errors, multi-issue layouts, clean screens, text fallback, empty inputs, and retries.
   - All 7 Vision Agent tests passed.
-  - All 14 existing system tests passed (Total: 21 passed).
 - **Status**: STABLE & VERIFIED.
 
 ---
 
 ### Agent 2: Triage Agent
-- **Status**: NEXT UP FOR AUDIT & REFINEMENT
-- **Focus**:
-  - Evidence-based severity classification (no inflation based on dramatic visuals).
-  - Accurate missing-information identification.
-  - Source-code requirement detection.
-  - Formulation of focused, unambiguous investigation tasks for the Investigation Agent.
+- **Date**: 2026-11-05
+- **Problems Discovered**:
+  1. Over-simplified string matching in heuristic fallback caused classification bleed (e.g. prompt keywords falsely triggered security concern).
+  2. Prompt lacked explicit rules preventing automatic escalation of all HTTP 500s to Critical regardless of context.
+  3. No evaluation and challenge mechanism implemented directly within `TriageAgent` to challenge incomplete or unverified Investigation Agent findings.
+  4. Missing contradiction detection between human reports and visual evidence.
+- **Improvements Implemented**:
+  1. **Evidence-Based Severity Engine**: Defined explicit rules: `critical` reserved for blocked core workflows (login, checkout, total crash) or data-integrity/security risks; non-critical backend 500s (e.g. avatar fail) classified as `high` or `medium`.
+  2. **Intelligent Multi-Category Classification**: Added comprehensive prompt and parsing mapping for `ui_bug`, `functional_bug`, `backend_error`, `api_integration_error`, `validation_error`, `performance_issue`, `security_concern`, and `unknown`.
+  3. **Contradiction Detection**: Explicitly compares developer descriptions against Vision Agent visual evidence, highlighting discrepancies in supporting observations.
+  4. **Actionable Task Delegation**: Formulates structured deliverables and determines if source code is required rather than issuing vague commands.
+  5. **Evaluation & Challenge Engine (`evaluate_investigation`)**: Added evaluation method in `TriageAgent` to review Investigation Agent outputs and issue challenges if root causes are speculative or code evidence is missing.
+  6. **Dual-Strategy Parser**: Enforced structured JSON output from reasoning models with comma repair and targeted heuristic fallback.
+  7. **Modernized Timestamps**: Replaced deprecated `datetime.utcnow()` with `datetime.now(timezone.utc)`.
+- **Tests Executed & Actual Results**:
+  - Created `tests/test_triage_agent.py` covering:
+    - Critical backend crash on essential workflows (e.g. checkout 500 -> Critical)
+    - Localized backend 500 handling (e.g. avatar load -> High/Medium, not Critical)
+    - Security credential leak handling (Critical Security Concern)
+    - Visual layout bugs (Low/Medium UI Bug)
+    - Structured JSON parsing from reasoning models
+    - Evaluation & challenge engine for incomplete vs. complete investigation deliverables
+  - All 7 Triage Agent tests passed.
+  - All 28 total tests in test suite passed (100% passing).
+- **Status**: STABLE & VERIFIED.
 
 ---
 
 ### Agent 3: Investigation Agent
-- **Status**: PENDING
-- **Focus**: Verifiable code grounding, unified diff accuracy, independent challenge generation against Vision/Triage findings.
+- **Status**: NEXT UP FOR AUDIT & REFINEMENT
+- **Focus**: Verifiable code grounding, AST/symbol checking, unified diff validity, independent counter-challenge generation against Vision/Triage findings.
