@@ -163,3 +163,4 @@ async def test_e2e_room_traceability_and_reply_to_links():
     assert findings_msgs[0].reply_to == task_msgs[0].message_id
     assert len(verdict_msgs) == 1
     assert verdict_msgs[0].reply_to == findings_msgs[0].message_id
+

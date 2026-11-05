@@ -39,11 +39,16 @@ export const App = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <header className="bg-white border-b shadow-sm px-6 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-medium">PatchPilot</h1>
-        <span className="text-sm text-gray-500">
-          AI-powered visual bug investigation
+    <div className="min-h-screen bg-[#e3fdfd]/30">
+      <header className="bg-white border-b border-[#cbf1f5] shadow-sm px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <div className="w-8 h-8 rounded-lg bg-[#71c9ce] flex items-center justify-center text-white font-bold text-lg shadow-sm">
+            P
+          </div>
+          <h1 className="text-xl font-bold tracking-tight text-gray-800">PatchPilot</h1>
+        </div>
+        <span className="text-sm font-medium px-3 py-1 bg-[#cbf1f5] text-[#2c7a7e] rounded-full">
+          AI-Powered Visual Bug Investigation
         </span>
       </header>
 
