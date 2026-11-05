@@ -17,15 +17,17 @@ const AIService = {
    * POST /issues/ (vision -> triage -> investigation) then GET /reports/{id}.
    */
   async runWorkflow(
-    file: File,
+    file: File | null,
     description: string,
     sourceCode: string
   ): Promise<any> {
     const form = new FormData()
-    form.append("file", file)
+    if (file) {
+      form.append("file", file)
+    }
     form.append(
       "issue_description",
-      description || "Visual bug reported from screenshot"
+      description || (file ? "Visual bug reported from screenshot" : "")
     )
     if (sourceCode.trim()) {
       form.append("source_code", sourceCode)
@@ -115,7 +117,7 @@ export const NewAnalysisPage = () => {
   }
 
   const handleAnalyze = async () => {
-    if (!screenshotFile) return
+    if (!screenshotFile && !userDescription.trim()) return
 
     setIsProcessing(true)
     setVisionResults(null)
@@ -145,6 +147,8 @@ export const NewAnalysisPage = () => {
     }
   }
 
+  const canSubmit = Boolean(screenshotFile || userDescription.trim())
+
   return (
     <div className="max-w-2xl mx-auto">
       <h2 className="text-2xl font-bold mb-6">New Visual Bug Analysis</h2>
@@ -153,7 +157,6 @@ export const NewAnalysisPage = () => {
         <div className="mb-4">
           <label className="block text-gray-700 font-medium mb-2">
             Describe the issue (optional)
-            <span className="text-red-500">*</span>
           </label>
           <textarea
             value={userDescription}
@@ -183,18 +186,28 @@ export const NewAnalysisPage = () => {
 
         {screenshotFile && (
           <div className="mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-gray-600">Attached Screenshot: {screenshotFile.name}</span>
+              <button
+                type="button"
+                onClick={() => setScreenshotFile(null)}
+                className="text-xs text-red-500 hover:underline"
+              >
+                Remove
+              </button>
+            </div>
             <img
               src={URL.createObjectURL(screenshotFile)}
               alt="Uploaded screenshot"
-              className="mt-2 rounded w-full max-h-64 object-contain"
+              className="mt-1 rounded w-full max-h-64 object-contain border"
             />
           </div>
         )}
 
         {!screenshotFile && (
-          <div className="mt-4 p-6 bg-gray-100 rounded">
-            <p className="text-gray-600">
-              Drag and drop a screenshot here or click to upload
+          <div className="mt-4 p-6 bg-gray-50 border-2 border-dashed border-[#cbf1f5] rounded-xl text-center">
+            <p className="text-gray-600 text-sm">
+              Upload screenshot (optional if issue description is provided)
             </p>
             <input
               type="file"
@@ -204,8 +217,9 @@ export const NewAnalysisPage = () => {
               className="hidden"
             />
             <button
+              type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="mt-2 inline-block btn-primary"
+              className="mt-3 inline-block btn-primary text-sm"
             >
               Browse Files
             </button>
@@ -215,9 +229,9 @@ export const NewAnalysisPage = () => {
 
       <button
         onClick={handleAnalyze}
-        disabled={isProcessing || !screenshotFile}
+        disabled={isProcessing || !canSubmit}
         className={`w-full mt-6 px-6 py-3 rounded-md font-medium ${
-          isProcessing || !screenshotFile
+          isProcessing || !canSubmit
             ? "opacity-50 cursor-not-allowed"
             : "bg-primary text-white hover:bg-primary/90 transition-colors"}
         `}>

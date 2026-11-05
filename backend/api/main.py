@@ -221,28 +221,38 @@ async def _log_agent_activity(
 
 @app.post("/issues/", response_model=IssueResponse)
 async def create_issue(
-    file: UploadFile = File(...),
+    file: Optional[UploadFile] = File(None),
     issue_description: str = Form(""),
     developer_notes: str = Form(""),
     source_code: str = Form(""),
     background_tasks: BackgroundTasks = None,
 ):
-    """Upload a screenshot and run vision -> triage -> investigation."""
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File must be an image")
+    """Create an issue with (image + code) OR (issue description + code) OR (image + description)."""
+    screenshot_b64 = ""
+    mime_type = "image/png"
 
-    screenshot_bytes = await file.read()
-    if not screenshot_bytes:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty")
-    if len(screenshot_bytes) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=400, detail="Screenshot must be under 10MB")
+    if file and file.filename:
+        if file.content_type and not file.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="File must be an image")
+        screenshot_bytes = await file.read()
+        if len(screenshot_bytes) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=400, detail="Screenshot must be under 10MB")
+        if screenshot_bytes:
+            screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+            mime_type = file.content_type or "image/png"
+
+    if not screenshot_b64 and not (issue_description and issue_description.strip()):
+        raise HTTPException(
+            status_code=400,
+            detail="Please provide at least a screenshot or an issue description to begin analysis."
+        )
 
     issue_id = str(uuid.uuid4())
     result = await run_pipeline(
         issue_id=issue_id,
         issue_description=issue_description,
-        screenshot_base64=base64.b64encode(screenshot_bytes).decode("utf-8"),
-        mime_type=file.content_type or "image/png",
+        screenshot_base64=screenshot_b64,
+        mime_type=mime_type,
         developer_notes=developer_notes,
         source_code=source_code or None,
     )
@@ -291,7 +301,7 @@ async def create_issue(
         + "; ".join(f"{e['agent']}: {e['error']}" for e in result.errors)
     )
     if not registry.model_configured():
-        detail += " No GEMINI_API_KEY configured, so agents used honest fallbacks."
+        detail += " No GROQ_API_KEY configured, so agents used offline AST fallbacks."
 
     return IssueResponse(issue_id=issue_id, status=status.value, message=detail)
 

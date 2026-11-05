@@ -32,11 +32,6 @@ from backend.models import (
     PydanticAgentActivity,
 )
 
-from google import genai
-from google.genai import types
-
-from backend.config import GEMINI_MODEL
-
 
 class TriageAgent:
     """Triage Agent that classifies bug reports and coordinates investigation."""
@@ -115,7 +110,7 @@ class TriageAgent:
         vision_observations: Optional[object] = None,
     ) -> PydanticTriageClassification:
         """Call the reasoning model for triage classification with multi-provider retry and robust fallback."""
-        from backend.config import GROQ_API_KEY, GROQ_MODEL, GEMINI_API_KEY, GEMINI_MODEL
+        from backend.config import GROQ_API_KEY, GROQ_MODEL
 
         # Priority 1: Groq if key present (high speed, large reasoning model)
         if GROQ_API_KEY:
@@ -143,34 +138,7 @@ class TriageAgent:
                     error_message=str(e),
                 )
 
-        # Priority 2: Gemini
-        if self.api_key:
-            for attempt in range(self.max_retries + 1):
-                try:
-                    client = genai.Client(api_key=self.api_key)
-                    response = client.models.generate_content(
-                        model=GEMINI_MODEL,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(
-                            temperature=0.1,
-                            max_output_tokens=2500,
-                        ),
-                    )
-                    response_text = response.text or ""
-                    parsed = self._parse_triage_response(response_text)
-                    if parsed:
-                        return parsed
-                except Exception as e:
-                    self._log_action(
-                        action=f"triage_call_retry_{attempt+1}",
-                        details=f"Attempt {attempt+1} encountered error: {str(e)[:120]}",
-                        success=False,
-                        error_message=str(e),
-                    )
-                    if attempt < self.max_retries:
-                        await asyncio.sleep(1.5 ** attempt)
-
-        # Priority 3: Sophisticated deterministic heuristic fallback
+        # Priority 2: Sophisticated deterministic heuristic fallback
         return self._heuristic_fallback(issue_description, vision_observations)
 
     def _parse_triage_response(self, text: str) -> Optional[PydanticTriageClassification]:
@@ -352,7 +320,7 @@ class TriageAgent:
                 affected_components.append(comp.title())
 
         if not self.api_key:
-            missing_info.append("No GEMINI_API_KEY configured; triage determined via empirical heuristic rules")
+            missing_info.append("Triage determined via empirical heuristic rules")
             missing_info.append("Application source code files required for investigation")
 
         return PydanticTriageClassification(

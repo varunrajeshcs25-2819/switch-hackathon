@@ -19,14 +19,12 @@ PROJECT_ROOT = BASE_DIR.parent.resolve()
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(BASE_DIR / ".env")
 
-# API Keys
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+# API Keys (Groq is the primary high-speed reasoning engine; Option 1 AST engine provides offline zero-API backup)
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 # Models
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 
 # Database

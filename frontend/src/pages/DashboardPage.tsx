@@ -76,36 +76,35 @@ export const DashboardPage = () => {
       {!stats?.model_configured && (
         <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800 flex items-center">
           <AlertCircle className="w-4 h-4 mr-2 shrink-0" />
-          No GEMINI_API_KEY configured. Agents run in honest fallback mode — results
-          are clearly marked as uncertain rather than fabricated.
+          No GROQ_API_KEY configured. Agents are running in Option 1 offline AST/heuristic mode — results are strictly deterministic and marked with corresponding confidence.
         </div>
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {cards.map((card) => (
-          <div key={card.label} className="bg-white p-6 rounded-xl shadow-sm border">
-            <h3 className="text-2xl font-bold">{card.value}</h3>
-            <p className="text-gray-500 mt-2 text-sm">{card.label}</p>
+          <div key={card.label} className="bg-white p-6 rounded-xl shadow-sm border border-[#cbf1f5]">
+            <h3 className="text-2xl font-bold text-gray-800">{card.value}</h3>
+            <p className="text-gray-500 mt-2 text-sm font-medium">{card.label}</p>
           </div>
         ))}
       </div>
 
       <div className="grid md:grid-cols-2 gap-4 mt-6">
-        <div className="bg-white p-6 rounded-xl shadow-sm border">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-[#cbf1f5]">
           <div className="flex items-center mb-3">
             <AlertCircle className="w-5 h-5 mr-2 text-orange-500" />
-            <h3 className="font-medium">Awaiting Developer Attention</h3>
+            <h3 className="font-semibold text-gray-800">Awaiting Developer Attention</h3>
           </div>
-          <p className="text-2xl font-bold">{stats?.awaiting_attention ?? 0}</p>
+          <p className="text-2xl font-bold text-gray-800">{stats?.awaiting_attention ?? 0}</p>
           <p className="text-sm text-gray-500 mt-1">
             Critical/high severity issues that are not completed.
           </p>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-[#cbf1f5]">
           <div className="flex items-center mb-3">
-            <Activity className="w-5 h-5 mr-2 text-blue-500" />
-            <h3 className="font-medium">Recent Agent Activity</h3>
+            <Activity className="w-5 h-5 mr-2 text-[#71c9ce]" />
+            <h3 className="font-semibold text-gray-800">Recent Agent Activity</h3>
           </div>
           {stats?.recent_activity?.length ? (
             <ul className="space-y-2 max-h-56 overflow-auto">

@@ -20,7 +20,6 @@ import re
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
-from backend.config import GEMINI_MODEL
 from agents.investigation.prompts import build_investigation_prompt
 from backend.models import (
     ConfidenceLevel,
@@ -28,9 +27,6 @@ from backend.models import (
     PydanticInvestigationFindings,
     PydanticAgentActivity,
 )
-
-from google import genai
-from google.genai import types
 
 
 class InvestigationAgent:
@@ -135,8 +131,8 @@ class InvestigationAgent:
         triage_classification: Optional[object] = None,
         max_tokens: int = 3500,
     ) -> PydanticInvestigationFindings:
-        """Call reasoning model with multi-provider failover (Groq -> Gemini -> AST Heuristic Engine)."""
-        from backend.config import GROQ_API_KEY, GROQ_MODEL, GEMINI_API_KEY, GEMINI_MODEL
+        """Call reasoning model with multi-provider failover (Groq -> AST Heuristic Engine)."""
+        from backend.config import GROQ_API_KEY, GROQ_MODEL
 
         # Priority 1: Groq Deep Reasoning Model (GPT-OSS-120B / Qwen)
         if GROQ_API_KEY:
@@ -169,39 +165,7 @@ class InvestigationAgent:
                     error_message=str(e),
                 )
 
-        # Priority 2: Gemini
-        if self.api_key:
-            for attempt in range(self.max_retries + 1):
-                try:
-                    client = genai.Client(api_key=self.api_key)
-                    response = client.models.generate_content(
-                        model=GEMINI_MODEL,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(
-                            temperature=0.1,
-                            max_output_tokens=max_tokens,
-                        ),
-                    )
-                    response_text = response.text or ""
-                    parsed = self._parse_investigation_response(
-                        response_text,
-                        source_code=source_code,
-                        vision_observations=vision_observations,
-                        triage_classification=triage_classification,
-                    )
-                    if parsed:
-                        return parsed
-                except Exception as e:
-                    self._log_action(
-                        action=f"investigation_call_retry_{attempt+1}",
-                        details=f"Attempt {attempt+1} failed: {str(e)[:120]}",
-                        success=False,
-                        error_message=str(e),
-                    )
-                    if attempt < self.max_retries:
-                        await asyncio.sleep(1.5 ** attempt)
-
-        # Priority 3: Fallback to local AST & code inspection engine
+        # Priority 2: Fallback to local AST & code inspection engine
         return self._heuristic_investigation_fallback(
             source_code=source_code,
             vision_observations=vision_observations,
