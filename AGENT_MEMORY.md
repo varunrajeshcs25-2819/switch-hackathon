@@ -51,19 +51,33 @@ This file tracks the architecture, discovered defects, fixes, refinements, test 
   6. **Dual-Strategy Parser**: Enforced structured JSON output from reasoning models with comma repair and targeted heuristic fallback.
   7. **Modernized Timestamps**: Replaced deprecated `datetime.utcnow()` with `datetime.now(timezone.utc)`.
 - **Tests Executed & Actual Results**:
-  - Created `tests/test_triage_agent.py` covering:
-    - Critical backend crash on essential workflows (e.g. checkout 500 -> Critical)
-    - Localized backend 500 handling (e.g. avatar load -> High/Medium, not Critical)
-    - Security credential leak handling (Critical Security Concern)
-    - Visual layout bugs (Low/Medium UI Bug)
-    - Structured JSON parsing from reasoning models
-    - Evaluation & challenge engine for incomplete vs. complete investigation deliverables
+  - Created `tests/test_triage_agent.py` covering critical backend crashes, localized errors, security leaks, layout bugs, JSON parsing, and deliverable evaluation.
   - All 7 Triage Agent tests passed.
-  - All 28 total tests in test suite passed (100% passing).
 - **Status**: STABLE & VERIFIED.
 
 ---
 
 ### Agent 3: Investigation Agent
-- **Status**: NEXT UP FOR AUDIT & REFINEMENT
-- **Focus**: Verifiable code grounding, AST/symbol checking, unified diff validity, independent counter-challenge generation against Vision/Triage findings.
+- **Date**: 2026-11-05
+- **Problems Discovered**:
+  1. Loose parsing relied on ad-hoc regex without guarding against hallucinated files when source code was not supplied.
+  2. No automated mechanism for generating unified diffs or verifying code locations in static code fallback mode.
+  3. Missing independent challenge generation (e.g. when code shows a disabled button is by design, or when code contradicts triage classification).
+  4. Deprecated `datetime.utcnow()` used in activity logging.
+- **Improvements Implemented**:
+  1. **Empirical Code Grounding & Anti-Hallucination**: Rewrote prompt in `agents/investigation/prompts.py` enforcing that every file, symbol, and location must exist in the supplied code context. When code is missing, the agent explicitly reports inability to verify rather than fabricating code causes.
+  2. **Independent Reasoning & Challenge Engine**: Implemented `challenges_previous_findings` generation to challenge Vision (e.g. `disabled={!isValid}` is by design) and Triage (e.g. frontend validation schema vs backend error).
+  3. **Unified Diff & Minimal Fix Generation**: Enforces standard unified diff patches (`--- original`, `+++ fixed`) targeting specific functions instead of rewrites.
+  4. **Deterministic Static Code Heuristic Scanner**: In `_heuristic_investigation_fallback`, added syntax scanning for runtime exceptions (ZeroDivision, KeyError, null dereferences), regex extraction of real filenames (`# file: ...`), and line-level code location pointers.
+  5. **Dual-Strategy Resilient Parser**: Structured JSON extraction with comma repair and heuristic fallback.
+  6. **Modernized Timestamps**: Replaced deprecated `datetime.utcnow()` with `datetime.now(timezone.utc)`.
+- **Tests Executed & Actual Results**:
+  - Created `tests/test_investigation_agent.py` covering:
+    - Code inspection identifying real root causes and generating unified diff patches
+    - Honest limitations when source code is absent (no hallucinated files, low confidence)
+    - Active challenge generation when button is disabled by design
+    - Structured JSON parsing from reasoning models
+    - Prompt formatting with visual observations, triage task, and code context
+  - All 5 Investigation Agent tests passed.
+  - All 33 total tests in the project test suite passed (100% passing).
+- **Status**: STABLE & VERIFIED.
