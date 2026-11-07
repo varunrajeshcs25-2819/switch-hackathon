@@ -158,6 +158,8 @@ Interactive docs: `http://127.0.0.1:8000/docs`.
 - **Agent Collaboration** — pick any issue and read its actual room transcript:
   sender → recipient, message kinds, timestamps, expandable payloads.
 - **Investigation Reports** — live issue list and evidence-based report view.
+This is the deployed app:
+https://tobago-mentioned-disks-poetry.trycloudflare.com/
 
 ---
 
