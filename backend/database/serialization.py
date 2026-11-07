@@ -48,6 +48,7 @@ def serialize_issue(data: Dict[str, Any]) -> Dict[str, Any]:
     payload["activity_history"] = _jsonable(data.get("activity_history") or [])
     payload["messages"] = _jsonable(data.get("messages") or [])
     payload["source_code_supplied"] = bool(data.get("source_code_supplied"))
+    payload["evidence_breakdown"] = _jsonable(data.get("evidence_breakdown") or {})
     payload["created_at"] = _jsonable(issue.created_at) if isinstance(issue, PydanticIssueBase) else None
     payload["updated_at"] = (
         _jsonable(issue.updated_at) if isinstance(issue, PydanticIssueBase) else None
@@ -80,6 +81,8 @@ def deserialize_issue(payload: Dict[str, Any]) -> Dict[str, Any]:
     data["investigation_findings"] = (
         PydanticInvestigationFindings.model_validate(findings) if findings else None
     )
+    if payload.get("evidence_breakdown"):
+        data["evidence_breakdown"] = payload["evidence_breakdown"]
     return data
 
 

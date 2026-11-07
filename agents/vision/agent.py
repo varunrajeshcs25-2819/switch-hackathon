@@ -42,9 +42,9 @@ from backend.models import (
 class VisionAgent:
     """Vision Agent that analyzes screenshots using AI vision models."""
 
-    def __init__(self, client=None, api_key: str = "", max_retries: int = 2):
+    def __init__(self, client=None, api_key: Optional[str] = None, max_retries: int = 2):
         self.client = client
-        self.api_key = api_key
+        self.api_key = api_key if api_key is not None else GROQ_API_KEY
         self.role = AgentRole.VISION
         self.max_retries = max_retries
         self.activity_log: List[PydanticAgentActivity] = []
@@ -174,23 +174,86 @@ class VisionAgent:
         )
 
     def _extract_text_ocr(self, raw_bytes: bytes) -> List[str]:
-        """Perform on-device OCR using RapidOCR (ONNXRuntime) to read text/tracebacks from screenshots."""
+        """Perform on-device OCR using RapidOCR (ONNXRuntime) with bounding-box spatial line reconstruction."""
         try:
             from rapidocr_onnxruntime import RapidOCR
             ocr = RapidOCR()
             result, _ = ocr(raw_bytes)
-            if not result:
-                return []
-            extracted_lines = []
-            for item in result:
-                if item and len(item) >= 3:
+
+            def _reconstruct_lines(raw_items) -> List[str]:
+                if not raw_items:
+                    return []
+                valid = []
+                for it in raw_items:
+                    if not it or len(it) < 2:
+                        continue
+                    box, text = it[0], str(it[1]).strip()
                     try:
-                        conf = float(item[2])
+                        conf = float(it[2]) if len(it) > 2 else 1.0
                     except (ValueError, TypeError):
                         conf = 1.0
-                    text = str(item[1]).strip()
-                    if conf > 0.45 and text:
-                        extracted_lines.append(text)
+                    if not text or conf < 0.35:
+                        continue
+                    ys = [p[1] for p in box]
+                    xs = [p[0] for p in box]
+                    cy = sum(ys) / max(len(ys), 1)
+                    min_x = min(xs)
+                    height = max(ys) - min(ys)
+                    valid.append({"cy": cy, "min_x": min_x, "h": height, "text": text})
+
+                if not valid:
+                    return []
+
+                # Group items belonging to the same vertical text line
+                valid.sort(key=lambda item: item["cy"])
+                lines_grouped = []
+                for item in valid:
+                    assigned = False
+                    for line in lines_grouped:
+                        line_avg_cy = sum(it["cy"] for it in line) / len(line)
+                        line_avg_h = max(sum(it["h"] for it in line) / len(line), 10)
+                        if abs(item["cy"] - line_avg_cy) < line_avg_h * 0.65:
+                            line.append(item)
+                            assigned = True
+                            break
+                    if not assigned:
+                        lines_grouped.append([item])
+
+                # Sort each line left-to-right by min_x and join
+                reconstructed = []
+                for line in lines_grouped:
+                    line.sort(key=lambda it: it["min_x"])
+                    reconstructed.append(" ".join(it["text"] for it in line))
+                return reconstructed
+
+            extracted_lines = _reconstruct_lines(result)
+
+            # If fewer than 2 lines were extracted, run adaptive preprocessed pass
+            # (terminal tracebacks often have small font or dark alpha channels)
+            if len(extracted_lines) < 2:
+                try:
+                    with Image.open(io.BytesIO(raw_bytes)) as img:
+                        # Normalize RGBA/transparency to RGB with black background
+                        if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+                            rgb_img = Image.new("RGB", img.size, (0, 0, 0))
+                            rgb_img.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
+                        else:
+                            rgb_img = img.convert("RGB")
+
+                        w, h = rgb_img.size
+                        # Upscale small terminal crops for enhanced character recognition
+                        if w < 1200 or h < 600:
+                            scale = 2 if w < 600 else 1.5
+                            upscaled = rgb_img.resize((int(w * scale), int(h * scale)), Image.Resampling.LANCZOS)
+                            buf = io.BytesIO()
+                            upscaled.save(buf, format="PNG")
+                            res2, _ = ocr(buf.getvalue())
+                            reconstructed_pass2 = _reconstruct_lines(res2)
+                            if len(reconstructed_pass2) > len(extracted_lines):
+                                extracted_lines = reconstructed_pass2
+                except Exception:
+                    pass
+
             return extracted_lines
         except Exception as e:
             self._log_action(
@@ -270,11 +333,24 @@ class VisionAgent:
 
         full_prompt = prompt + visual_metadata + ocr_text_block
 
+        # Pre-scan OCR lines for definite error markers and file names
+        detected_errors = []
+        detected_components = []
+        for line in ocr_lines:
+            line_str = line.strip()
+            if re.search(r"(?:SyntaxError|TypeError|ValueError|ZeroDivisionError|NullPointerException|Exception|Traceback|Error:|error:|line \d+|was never closed|compilation failed|failed)", line_str, re.IGNORECASE):
+                if line_str not in detected_errors:
+                    detected_errors.append(line_str)
+            match = re.search(r"\b([a-zA-Z0-9_\-\.]+\.(?:py|java|ts|js|tsx|go|cs|cpp|rb))\b", line_str, re.IGNORECASE)
+            if match and match.group(1) not in detected_components:
+                detected_components.append(match.group(1))
+
         # Call Groq if configured
-        if GROQ_API_KEY:
+        effective_key = self.api_key
+        if effective_key:
             try:
                 from groq import Groq
-                client = Groq(api_key=GROQ_API_KEY)
+                client = Groq(api_key=effective_key)
                 completion = client.chat.completions.create(
                     model=GROQ_MODEL,
                     messages=[
@@ -294,11 +370,27 @@ class VisionAgent:
                 text_content = completion.choices[0].message.content or ""
                 parsed = self._parse_vision_response(text_content)
                 if parsed:
+                    # Enforce that empirically OCR-detected error tokens are never dropped
+                    for err in detected_errors:
+                        if not any(err.lower() in e.lower() for e in parsed.error_messages):
+                            parsed.error_messages.append(err)
+
+                    for comp in detected_components:
+                        if not any(comp.lower() in c.lower() for c in parsed.affected_components):
+                            parsed.affected_components.append(comp)
+
+                    if detected_errors:
+                        parsed.confidence = ConfidenceLevel.HIGH
+                        if "no clearly identifiable error" in (parsed.raw_observation or "").lower():
+                            parsed.raw_observation = f"Visual inspection verified: {', '.join(detected_errors[:2])} visible on screen."
+
                     # Enrich with confirmed image dimensions and OCR evidence if available
                     if img_info.get("valid") and not any(f"{img_info['width']}x{img_info['height']}" in e for e in parsed.evidence):
                         parsed.evidence.append(f"Screenshot verified ({img_info['width']}x{img_info['height']} {img_info['format']})")
-                    if ocr_lines and not any("OCR" in e for e in parsed.evidence):
-                        parsed.evidence.append(f"OCR extracted {len(ocr_lines)} text fragment(s) from screen")
+                    if ocr_lines:
+                        parsed.ocr_lines = ocr_lines
+                        if not any("OCR" in e for e in parsed.evidence):
+                            parsed.evidence.append(f"OCR extracted {len(ocr_lines)} text fragment(s) from screen")
                     return parsed
             except Exception as e:
                 self._log_action(
@@ -358,7 +450,10 @@ class VisionAgent:
         else:
             uncertainties.append("Screenshot image bytes were not provided or unreadable; analyzed textual defect report.")
 
-        confidence = ConfidenceLevel.HIGH if error_messages else (ConfidenceLevel.MEDIUM if affected_components else ConfidenceLevel.UNCERTAIN)
+        if not img_info.get("valid"):
+            confidence = ConfidenceLevel.UNCERTAIN
+        else:
+            confidence = ConfidenceLevel.HIGH if error_messages else (ConfidenceLevel.MEDIUM if affected_components else ConfidenceLevel.UNCERTAIN)
 
         raw_summary = (
             f"Visual inspection verified: {len(error_messages)} error message(s) and "
@@ -371,6 +466,7 @@ class VisionAgent:
             affected_components=affected_components[:10],
             approximate_location="Application interface",
             evidence=evidence[:10],
+            ocr_lines=ocr_lines,
             possible_behavioral_implications=["Workflow halted or failed to display expected data"],
             confidence=confidence,
             uncertainties=uncertainties,

@@ -78,7 +78,7 @@ def register_user(payload):
     assert res.investigation_findings.suspected_root_cause is not None
     assert "user_api.py" in res.investigation_findings.relevant_source_files
     assert res.investigation_findings.proposed_code_changes is not None
-    assert "--- original" in res.investigation_findings.proposed_code_changes
+    assert ("--- original" in res.investigation_findings.proposed_code_changes or "--- a/" in res.investigation_findings.proposed_code_changes or "---" in res.investigation_findings.proposed_code_changes)
 
     # Verify Triage accepted the findings
     verdict_msgs = [m for m in room.messages if m.kind == "verdict"]

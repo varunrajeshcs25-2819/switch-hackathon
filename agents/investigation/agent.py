@@ -32,9 +32,10 @@ from backend.models import (
 class InvestigationAgent:
     """Investigation Agent that examines source code and identifies root causes."""
 
-    def __init__(self, client: object = None, api_key: str = "", max_retries: int = 2):
+    def __init__(self, client: object = None, api_key: Optional[str] = None, max_retries: int = 2):
+        from backend.config import GROQ_API_KEY
         self.client = client
-        self.api_key = api_key
+        self.api_key = api_key if api_key is not None else GROQ_API_KEY
         self.role = AgentRole.INVESTIGATION
         self.max_retries = max_retries
         self.activity_log: List[PydanticAgentActivity] = []
@@ -132,13 +133,14 @@ class InvestigationAgent:
         max_tokens: int = 3500,
     ) -> PydanticInvestigationFindings:
         """Call reasoning model with multi-provider failover (Groq -> AST Heuristic Engine)."""
-        from backend.config import GROQ_API_KEY, GROQ_MODEL
+        from backend.config import GROQ_MODEL
 
         # Priority 1: Groq Deep Reasoning Model (GPT-OSS-120B / Qwen)
-        if GROQ_API_KEY:
+        effective_key = self.api_key
+        if effective_key:
             try:
                 from groq import Groq
-                client = Groq(api_key=GROQ_API_KEY)
+                client = Groq(api_key=effective_key)
                 completion = client.chat.completions.create(
                     model=GROQ_MODEL,
                     messages=[
@@ -213,9 +215,20 @@ class InvestigationAgent:
         if proposed_fix:
             proposed_fix = str(proposed_fix).strip()
 
+        corrected_code = json_obj.get("corrected_code")
+        if corrected_code:
+            corrected_code = str(corrected_code).strip()
+
+        corrected_filename = json_obj.get("corrected_filename") or (relevant_files[0] if relevant_files else None)
+        context_scope = json_obj.get("context_scope") or "snippet"
+
         proposed_code = json_obj.get("proposed_code_changes")
         if proposed_code:
             proposed_code = str(proposed_code).strip()
+
+        # If corrected_code is missing but proposed_code_changes exists and isn't diff markers, use it
+        if not corrected_code and proposed_code and not proposed_code.startswith("---") and not proposed_code.startswith("@@"):
+            corrected_code = proposed_code
 
         # 6. Recommended tests
         raw_tests = json_obj.get("recommended_tests") or []
@@ -245,8 +258,15 @@ class InvestigationAgent:
             raw_challenges = [raw_challenges]
         challenges = [str(c).strip() for c in raw_challenges if str(c).strip()]
 
-        # Enforce honesty: If no source code was supplied, downgrade confidence and add uncertainty
-        if not source_code or not source_code.strip():
+        # Empirical fact check: If source code contains an explicit disabled attribute
+        # and earlier agents claimed a broken/unclickable button, guarantee the challenge is recorded
+        if source_code and re.search(r"disabled\s*=\s*\{|disabled\s*=\s*['\"]?true['\"]?", source_code, re.IGNORECASE):
+            if not any("disabled" in c.lower() for c in challenges):
+                challenges.append("Source code indicates the button has an explicit disabled attribute; this is an intentional design state rather than a broken element.")
+
+        # Enforce honesty: If no source code was supplied and no OCR code on screen, note uncertainty
+        ocr_lines = getattr(vision_observations, "ocr_lines", []) if vision_observations else []
+        if (not source_code or not source_code.strip()) and not ocr_lines:
             if "No source code was supplied to verify code-level conclusions" not in uncertainties:
                 uncertainties.append("No source code was supplied; code-level findings cannot be verified.")
             if confidence == ConfidenceLevel.HIGH:
@@ -261,6 +281,9 @@ class InvestigationAgent:
             supporting_evidence=evidence[:10],
             reasoning=str(json_obj.get("reasoning") or summary)[:2000],
             proposed_fix=proposed_fix,
+            corrected_code=corrected_code,
+            corrected_filename=corrected_filename,
+            context_scope=context_scope,
             proposed_code_changes=proposed_code,
             recommended_tests=recommended_tests[:10],
             actual_test_results=json_obj.get("actual_test_results"),
@@ -299,17 +322,23 @@ class InvestigationAgent:
         Scans supplied source code for real syntax, common bug patterns (unhandled exceptions,
         missing checks, disabled handlers), extracts real filenames/lines, and detects challenges.
         """
-        # Case 1: No source code supplied
-        if not source_code or not source_code.strip():
+        # Case 1: Check if source code was supplied or if code is visible via OCR in vision observations
+        effective_code = source_code.strip() if source_code and source_code.strip() else ""
+        ocr_lines = getattr(vision_observations, "ocr_lines", []) if vision_observations else []
+        if not effective_code and ocr_lines:
+            effective_code = "\n".join(ocr_lines)
+
+        if not effective_code:
             return PydanticInvestigationFindings(
                 issue_id="",
-                investigation_summary="Source code was not supplied with this issue report. Code-level root cause cannot be verified.",
+                investigation_summary="Source code was not supplied with this issue report and no code text was detected in the screenshot. Code-level root cause cannot be verified.",
                 suspected_root_cause=None,
                 relevant_source_files=[],
                 relevant_code_locations=[],
                 supporting_evidence=[],
                 reasoning="Investigation requires application source code to trace function calls, verify exceptions, and generate unified patches.",
                 proposed_fix=None,
+                corrected_code="",
                 proposed_code_changes=None,
                 recommended_tests=["Supply relevant source code files to enable static code inspection and automated test suggestions."],
                 confidence=ConfidenceLevel.LOW,
@@ -317,7 +346,8 @@ class InvestigationAgent:
                 challenges_previous_findings=["Triage classified an issue, but without source code, no code-level evidence can verify it."],
             )
 
-        # Case 2: Source code supplied -> Perform static pattern scanning
+        # Case 2: Code available (either supplied or reconstructed from screenshot OCR) -> Perform analysis
+        source_code = effective_code
         detected_files = []
         file_match = re.findall(r"(?:file:|filename:|#\s*file:\s*|#\s*|//\s*file:\s*|//\s*)([\w\-\/\\]+\.(?:py|js|ts|tsx|jsx|html|css))", source_code, re.IGNORECASE)
         if file_match:

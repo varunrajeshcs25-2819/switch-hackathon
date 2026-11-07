@@ -36,8 +36,9 @@ from backend.models import (
 class TriageAgent:
     """Triage Agent that classifies bug reports and coordinates investigation."""
 
-    def __init__(self, api_key: str = "", max_retries: int = 2):
-        self.api_key = api_key
+    def __init__(self, api_key: Optional[str] = None, max_retries: int = 2):
+        from backend.config import GROQ_API_KEY
+        self.api_key = api_key if api_key is not None else GROQ_API_KEY
         self.role = AgentRole.TRIAGE
         self.max_retries = max_retries
         self.activity_log: List[PydanticAgentActivity] = []
@@ -113,10 +114,11 @@ class TriageAgent:
         from backend.config import GROQ_API_KEY, GROQ_MODEL
 
         # Priority 1: Groq if key present (high speed, large reasoning model)
-        if GROQ_API_KEY:
+        effective_key = self.api_key
+        if effective_key:
             try:
                 from groq import Groq
-                client = Groq(api_key=GROQ_API_KEY)
+                client = Groq(api_key=effective_key)
                 completion = client.chat.completions.create(
                     model=GROQ_MODEL,
                     messages=[
@@ -129,6 +131,19 @@ class TriageAgent:
                 response_text = completion.choices[0].message.content or ""
                 parsed = self._parse_triage_response(response_text)
                 if parsed:
+                    # Enforce that if vision observations discovered explicit code errors/tracebacks,
+                    # classification cannot remain "unknown"
+                    if parsed.classification == IssueClassification.UNKNOWN and vision_observations:
+                        v_errors = " ".join(getattr(vision_observations, "error_messages", []) or []).lower()
+                        if any(k in v_errors for k in ["syntaxerror", "compilation", "parse", "traceback", "closed", "line "]):
+                            parsed.classification = IssueClassification.FUNCTIONAL_BUG
+                            parsed.severity = SeverityLevel.HIGH
+                            if not parsed.issue_summary or "unknown" in parsed.issue_summary.lower():
+                                err_lead = getattr(vision_observations, "error_messages", ["Code error"])[0]
+                                parsed.issue_summary = f"Code parsing/syntax failure: {err_lead}"
+                        elif any(k in v_errors for k in ["nullpointer", "500", "zerodivision", "exception"]):
+                            parsed.classification = IssueClassification.BACKEND_ERROR
+                            parsed.severity = SeverityLevel.HIGH
                     return parsed
             except Exception as e:
                 self._log_action(

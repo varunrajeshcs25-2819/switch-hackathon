@@ -98,6 +98,7 @@ class PydanticVisionObservations(BaseModel):
     affected_components: List[str] = Field(default_factory=list)
     approximate_location: Optional[str] = None  # e.g., "registration page, submit button"
     evidence: List[str] = Field(default_factory=list)  # quoted text, error codes seen
+    ocr_lines: List[str] = Field(default_factory=list)  # verbatim lines extracted from screenshot by RapidOCR
     possible_behavioral_implications: List[str] = Field(default_factory=list)
     confidence: ConfidenceLevel = ConfidenceLevel.MEDIUM
     uncertainties: List[str] = Field(default_factory=list)
@@ -132,7 +133,10 @@ class PydanticInvestigationFindings(BaseModel):
     supporting_evidence: List[str] = Field(default_factory=list)
     reasoning: str = Field(default="No root cause identified yet", max_length=2000)
     proposed_fix: Optional[str] = None
-    proposed_code_changes: Optional[str] = None  # unified diff or snippet
+    corrected_code: Optional[str] = None          # Clean, directly copyable replacement code (no diff marks)
+    corrected_filename: Optional[str] = None      # Target filename e.g. "App.java"
+    context_scope: Optional[str] = "snippet"      # "full_file" | "function" | "snippet"
+    proposed_code_changes: Optional[str] = None   # Optional unified diff view
     recommended_tests: List[str] = Field(default_factory=list)
     actual_test_results: Optional[str] = None
     confidence: ConfidenceLevel = ConfidenceLevel.MEDIUM

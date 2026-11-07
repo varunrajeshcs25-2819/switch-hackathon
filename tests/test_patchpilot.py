@@ -15,6 +15,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{TMP_DIR}/test.db"
 os.environ.pop("GEMINI_API_KEY", None)
 os.environ.pop("ANTHROPIC_API_KEY", None)
 os.environ.pop("OPENAI_API_KEY", None)
+os.environ.pop("GROQ_API_KEY", None)
 
 from fastapi.testclient import TestClient  # noqa: E402
 

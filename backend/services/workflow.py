@@ -101,15 +101,16 @@ def _challenges(
     classification = (getattr(triage, "classification", "") or "").lower()
     files = getattr(findings, "relevant_source_files", None) or []
     root_cause = (getattr(findings, "suspected_root_cause", "") or "").strip()
+    has_code_evidence = bool(source_code) or bool(getattr(vision, "ocr_lines", [])) or bool(getattr(findings, "corrected_code", ""))
 
     # 2. Backend/API classified but the investigation found no code evidence
     if classification in {"backend_error", "api_integration_error"}:
-        if not source_code:
+        if not has_code_evidence:
             reasons.append(
                 "Triage classified this as a backend/API error, but no source code was "
-                "supplied, so no code-level evidence supports that classification."
+                "supplied or detected, so no code-level evidence supports that classification."
             )
-        elif not files:
+        elif not files and not getattr(findings, "corrected_code", ""):
             reasons.append(
                 "Source code was supplied but the investigation named no relevant files, "
                 "so the backend classification is not yet supported by code evidence."
@@ -135,24 +136,27 @@ def _challenges(
     return list(dict.fromkeys(reasons))
 
 
-def _evaluate(triage, findings, source_code: Optional[str]) -> Dict[str, Any]:
+def _evaluate(triage, findings, source_code: Optional[str], vision: Optional[Any] = None) -> Dict[str, Any]:
     """Triage's final evaluation of whether the investigation answered the task."""
     objective = (getattr(triage, "investigation_objective", "") or "").strip()
     root_cause = (getattr(findings, "suspected_root_cause", "") or "").strip()
     fix = (getattr(findings, "proposed_fix", "") or "").strip()
+    corrected = (getattr(findings, "corrected_code", "") or "").strip()
     confidence = (getattr(findings, "confidence", "") or "unknown")
+
+    has_code_evidence = bool(source_code) or bool(getattr(vision, "ocr_lines", [])) or bool(corrected)
 
     missing: List[str] = []
     if not _has_real_value(root_cause):
         missing.append("root cause")
-    if not _has_real_value(fix):
+    if not _has_real_value(fix) and not corrected:
         missing.append("proposed fix")
-    if not source_code:
+    if not has_code_evidence:
         missing.append("source code evidence")
 
     classification = (getattr(triage, "classification", "") or "").lower()
-    needs_code = bool(source_code) or ("code" not in objective.lower() and classification not in {"backend_error", "api_integration_error"})
-    addressed = _has_real_value(root_cause) and needs_code
+    needs_code = has_code_evidence or ("code" not in objective.lower() and classification not in {"backend_error", "api_integration_error"})
+    addressed = _has_real_value(root_cause) and needs_code and (bool(fix) or bool(corrected))
     return {
         "objective": objective,
         "addressed": addressed,
@@ -354,7 +358,10 @@ async def run_pipeline(
 
         # Evaluate deliverables using workflow review
         verdict = _evaluate(
-            result.triage_classification, result.investigation_findings, source_code
+            result.triage_classification,
+            result.investigation_findings,
+            source_code,
+            vision=result.vision_observations,
         )
 
         room.post(
